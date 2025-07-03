@@ -1,4 +1,3 @@
-require("dotenv").config();
 const { Client, GatewayIntentBits, Partials } = require("discord.js");
 const { Manager } = require("erela.js");
 
@@ -122,3 +121,5 @@ client.on("messageCreate", async message => {
       break;
   }
 });
+
+client.login(process.env.DISCORD_TOKEN);
