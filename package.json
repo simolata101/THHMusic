@@ -1,21 +1,11 @@
 {
-  "name": "discord-gamble-bot",
+  "name": "discord-leaderboard-bot",
   "version": "1.0.0",
-  "description": "Discord leveling bot with gambling games, XP, and coin system using Supabase and Discord.js",
   "main": "index.js",
   "type": "module",
-  "scripts": {
-    "start": "node index.js"
-  },
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.5",
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.3.1"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": ["discord", "bot", "gambling", "xp", "supabase", "railway"],
-  "author": "YourName",
-  "license": "MIT"
+    "discord.js": "^14.11.0",
+    "@supabase/supabase-js": "^2.39.7",
+    "dotenv": "^16.4.5"
+  }
 }
