@@ -1,13 +1,21 @@
 {
-  "name": "discord-music-bot",
+  "name": "discord-gamble-bot",
   "version": "1.0.0",
+  "description": "Discord leveling bot with gambling games, XP, and coin system using Supabase and Discord.js",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.21.0",
-    "dotenv": "^16.3.1",
-    "erela.js": "^2.3.3"
-  }
+    "@supabase/supabase-js": "^2.39.5",
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": ["discord", "bot", "gambling", "xp", "supabase", "railway"],
+  "author": "YourName",
+  "license": "MIT"
 }
