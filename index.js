@@ -11,12 +11,14 @@ const settingsConfig = JSON.parse(fs.readFileSync('./config/settings.json', 'utf
 const decayConfig = JSON.parse(fs.readFileSync('./config/decay.json', 'utf8'));
 
 const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-const bot = new Client({ intents: [
-  GatewayIntentBits.Guilds,
-  GatewayIntentBits.GuildMessages,
-  GatewayIntentBits.MessageContent,
-  GatewayIntentBits.GuildMembers
-] });
+const bot = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
+  ]
+});
 
 // Register Slash Commands
 bot.on('ready', async () => {
@@ -58,9 +60,10 @@ bot.on('interactionCreate', async inter => {
   }
 
   if (inter.commandName === 'help') {
-    return inter.reply({ embeds: [{
-      title: '📘 Help Menu',
-      description: `
+    return inter.reply({
+      embeds: [{
+        title: '📘 Help Menu',
+        description: `
 **/balance** – View your XP, level, and streak  
 **/leaderboard** – Show top 10 users  
 **/role [role]** – Set reward role for #1 user *(Admin)*  
@@ -70,8 +73,9 @@ bot.on('interactionCreate', async inter => {
 📉 XP decays after ${decayConfig.days_before_decay} days of inactivity by ${decayConfig.percentage_decay * 100}%
 ❌ No XP gain in excluded channels
 `,
-      color: 0x7a5cfa
-    }] });
+        color: 0x7a5cfa
+      }]
+    });
   }
 
   if (inter.commandName === 'balance') {
@@ -117,7 +121,13 @@ bot.on('interactionCreate', async inter => {
       }
     }
 
-    return inter.reply({ embeds: [{ title: "🏆 Top 10 Leaderboard", description: list, color: 0xffcc00 }] });
+    return inter.reply({
+      embeds: [{
+        title: "🏆 Top 10 Leaderboard",
+        description: list,
+        color: 0xffcc00
+      }]
+    });
   }
 });
 
@@ -130,24 +140,27 @@ bot.on('messageCreate', async msg => {
   const now = new Date().toISOString().split('T')[0];
 
   const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
-  let excluded = setting?.excluded_channels || [];
 
-  if (typeof excluded === 'string') {
+  let excluded = setting?.excluded_channels;
+  if (!excluded) {
     try {
-      excluded = JSON.parse(excluded);
-    } catch (err) {
+      excluded = JSON.parse(process.env.DEFAULT_EXCLUDED_CHANNELS || '[]');
+    } catch {
       excluded = [];
     }
   }
-  
+
   if (excluded.includes(cid)) return;
 
-
-  const xpGain = setting?.message_points || settingsConfig.default_message_points;
+  const xpGain = setting?.message_points ??
+    parseInt(process.env.DEFAULT_MESSAGE_POINTS) ??
+    settingsConfig.default_message_points;
 
   let { data: user } = await supa.from('users').select().eq('user_id', uid).single();
   if (!user) {
-    const res = await supa.from('users').insert({ user_id: uid, xp: 0, lvl: 1, coins: 0, streak: 1, last_active: now }).select().single();
+    const res = await supa.from('users').insert({
+      user_id: uid, xp: 0, lvl: 1, coins: 0, streak: 1, last_active: now
+    }).select().single();
     user = res.data;
   }
 
@@ -155,7 +168,10 @@ bot.on('messageCreate', async msg => {
   const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
   const leveledUp = newLvl > user.lvl;
 
-  await supa.from('users').update({ xp: newXp, lvl: newLvl, last_active: now }).eq('user_id', uid);
+  await supa.from('users').update({
+    xp: newXp, lvl: newLvl, last_active: now
+  }).eq('user_id', uid);
+
   if (leveledUp) msg.channel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
 });
 
