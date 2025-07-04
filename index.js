@@ -143,18 +143,15 @@ bot.on('messageCreate', async msg => {
 
   let excluded = [];
 
-  if (Array.isArray(setting?.excluded_channels)) {
-    excluded = setting.excluded_channels;
-  } else {
+
     try {
       excluded = JSON.parse(process.env.DEFAULT_EXCLUDED_CHANNELS || '[]');
     } catch {
       excluded = [];
     }
-  }
 
 // Make sure all values are strings for comparison
-excluded = excluded.map(id => id.toString());
+  excluded = excluded.map(id => id.toString());
 
   if (excluded.includes(cid)) return;
 
