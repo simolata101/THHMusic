@@ -1,125 +1,123 @@
-const { Client, GatewayIntentBits, Partials } = require("discord.js");
-const { Manager } = require("erela.js");
+// index.js (Discord Gamble Bot with prefix-based commands)
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-  partials: [Partials.Channel],
-});
+import { Client, GatewayIntentBits, PermissionsBitField } from 'discord.js';
+import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+dotenv.config();
 
-const prefix = "thh!";
-const guildVoiceState = new Map();
+const PREFIX = 'thh!';
+const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const bot = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-client.manager = new Manager({
-  nodes: [
-    {
-      host: process.env.LAVALINK_HOST,
-      port: parseInt(process.env.LAVALINK_PORT),
-      password: process.env.LAVALINK_PASSWORD,
-      secure: process.env.LAVALINK_SECURE === "true",
-    },
-  ],
-  send(id, payload) {
-    const guild = client.guilds.cache.get(id);
-    if (guild) guild.shard.send(payload);
-  },
-});
+bot.on('ready', () => console.log(`Bot ready as ${bot.user.tag}`));
 
-client.on("ready", () => {
-  console.log(`${client.user.tag} is online!`);
-  client.manager.init(client.user.id);
-});
+bot.on('messageCreate', async msg => {
+  if (msg.author.bot) return;
 
-client.on("raw", d => client.manager.updateVoiceState(d));
+  const uid = msg.author.id;
+  const now = new Date().toISOString().split('T')[0];
+  const { data: user } = await supa.from('users').select().eq('user_id', uid).single();
+  if (!user) await supa.from('users').insert({ user_id: uid, xp: 0, coins: 0, lvl: 1, streak: 1, last_active: now });
 
-client.on("messageCreate", async message => {
-  if (!message.guild || message.author.bot || !message.content.startsWith(prefix)) return;
+  if (msg.content.startsWith(PREFIX)) {
+    const args = msg.content.slice(PREFIX.length).trim().split(/ +/);
+    const cmd = args.shift().toLowerCase();
+    const { data } = await supa.from('users').select().eq('user_id', uid).single();
 
-  const args = message.content.slice(prefix.length).trim().split(/ +/);
-  const cmd = args.shift().toLowerCase();
-
-  const { channel } = message.member.voice;
-  const player = client.manager.players.get(message.guild.id);
-
-  if (["play", "pause", "resume", "skip", "leave"].includes(cmd) && !channel)
-    return message.reply("You must be in a voice channel first.");
-
-  if (channel) {
-    const existing = guildVoiceState.get(message.guild.id);
-    if (existing && existing !== channel.id)
-      return message.reply("I’m already playing in another voice channel.");
-  }
-
-  switch (cmd) {
-    case "play": {
-      if (!args[0]) return message.reply("Please provide a song name or link.");
-      let player = client.manager.create({
-        guild: message.guild.id,
-        voiceChannel: channel.id,
-        textChannel: message.channel.id,
-        selfDeafen: true,
-      });
-      guildVoiceState.set(message.guild.id, channel.id);
-
-      if (player.state !== "CONNECTED") player.connect();
-
-      let res = await client.manager.search(args.join(" "), message.author);
-      if (res.loadType === "LOAD_FAILED" || !res.tracks.length)
-        return message.reply("No results found.");
-
-      player.queue.add(res.tracks[0]);
-      message.reply(`Enqueued **${res.tracks[0].title}**`);
-      if (!player.playing) player.play();
-      break;
+    if (data.last_active !== now) {
+      const yest = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+      const newStreak = data.last_active === yest ? data.streak + 1 : 1;
+      await supa.from('users').update({ streak: newStreak, last_active: now }).eq('user_id', uid);
+      data.streak = newStreak;
     }
 
-    case "pause":
-      if (!player) return message.reply("Nothing is playing.");
-      player.pause(true);
-      message.reply("⏸ Paused.");
-      break;
+    if (cmd === 'help') {
+      msg.reply(`📘 **Bot Help**\n\n${PREFIX}balance – Show your XP, coins, level, streak\n${PREFIX}gamble [game] [bet] – Play highlow, coinflip, dice, slots, bomb\n${PREFIX}buycurrency [amount] – Convert XP into coins (10 XP = 1 coin)\n${PREFIX}shop – View buyable roles\n${PREFIX}buyrole [@role] – Buy a role using coins`);
+    }
 
-    case "resume":
-      if (!player) return message.reply("Nothing is playing.");
-      player.pause(false);
-      message.reply("▶️ Resumed.");
-      break;
+    if (cmd === 'balance') {
+      msg.reply(`XP: ${data.xp}, Level: ${data.lvl}, Coins: ${data.coins}, Streak: ${data.streak} days`);
+    }
 
-    case "skip":
-      if (!player || !player.queue.current) return message.reply("Nothing to skip.");
-      player.stop();
-      message.reply("⏭ Skipped.");
-      break;
+    if (cmd === 'buycurrency') {
+      const amount = parseInt(args[0]);
+      const xpCost = amount * 10;
+      if (data.xp < xpCost) return msg.reply(`Not enough XP. You need ${xpCost} XP.`);
+      await supa.from('users').update({ xp: data.xp - xpCost, coins: data.coins + amount }).eq('user_id', uid);
+      return msg.reply(`You converted ${xpCost} XP into ${amount} coins.`);
+    }
 
-    case "leave":
-      if (!player) return message.reply("I'm not in a voice channel.");
-      player.destroy();
-      guildVoiceState.delete(message.guild.id);
-      message.reply("👋 Left the voice channel and cleared the queue.");
-      break;
+    if (cmd === 'shop') {
+      const { data: roles } = await supa.from('shop').select();
+      if (!roles.length) return msg.reply('No roles in the shop.');
+      const list = roles.map(r => `${r.role_name} – ${r.cost} coins`).join('\n');
+      return msg.reply(`🛒 Shop:\n${list}`);
+    }
 
-    case "queue":
-      if (!player || !player.queue.length) return message.reply("The queue is empty.");
-      const queue = player.queue.map((t, i) => `${i + 1}. ${t.title}`).join("\n");
-      message.reply(`**Current Queue:**\n${queue}`);
-      break;
+    if (cmd === 'buyrole') {
+      const role = msg.mentions.roles.first();
+      if (!role) return msg.reply('Please mention a valid role.');
+      const { data: shop } = await supa.from('shop').select().eq('role_id', role.id).single();
+      if (!shop) return msg.reply('That role is not in the shop.');
+      if (data.coins < shop.cost) return msg.reply(`You need ${shop.cost} coins.`);
+      await supa.from('users').update({ coins: data.coins - shop.cost }).eq('user_id', uid);
+      await msg.member.roles.add(role);
+      return msg.reply(`You bought the role ${role.name} for ${shop.cost} coins.`);
+    }
 
-    case "help":
-      message.reply(`
-🎵 **Available Commands**:
-\`${prefix}play <url|query>\` - Play a song
-\`${prefix}pause\` - Pause playback
-\`${prefix}resume\` - Resume playback
-\`${prefix}skip\` - Skip current song
-\`${prefix}queue\` - Show song queue
-\`${prefix}leave\` - Leave voice channel and clear queue
-      `);
-      break;
+    if (cmd === 'gamble') {
+      const game = args[0];
+      const bet = parseInt(args[1]);
+      if (!['highlow', 'coinflip', 'dice', 'slots', 'bomb'].includes(game)) return msg.reply('Game not found.');
+      if (bet > data.coins || bet <= 0) return msg.reply('Invalid or insufficient bet.');
+
+      let delta = 0;
+      let result = '';
+      const streakMult = 1 + data.streak * 0.01;
+
+      if (game === 'highlow') {
+        const u = Math.ceil(Math.random() * 13), b = Math.ceil(Math.random() * 13);
+        delta = u > b ? Math.floor(bet * streakMult) : -bet;
+        result = `HighLow: You ${u > b ? 'win' : 'lose'}! Your ${u} vs Bot ${b}`;
+      }
+      if (game === 'coinflip') {
+        const flip = Math.random() < 0.5 ? 'heads' : 'tails';
+        const guess = Math.random() < 0.5 ? 'heads' : 'tails';
+        delta = flip === guess ? Math.floor(bet * streakMult) : -bet;
+        result = `Coinflip: You ${flip === guess ? 'win' : 'lose'} (${guess} vs ${flip})`;
+      }
+      if (game === 'dice') {
+        const u = Math.ceil(Math.random() * 100), b = Math.ceil(Math.random() * 100);
+        delta = u > b ? Math.floor(bet * streakMult) : -bet;
+        result = `Dice: You ${u > b ? 'win' : 'lose'}! You ${u}, Bot ${b}`;
+      }
+      if (game === 'slots') {
+        const icons = ['🍒', '🍋', '🔔', '⭐'];
+        const spin = Array.from({ length: 3 }, () => icons[Math.floor(Math.random() * icons.length)]);
+        const win = spin.every(s => s === spin[0]);
+        delta = win ? Math.floor(bet * 3 * streakMult) : -bet;
+        result = `Slots: ${spin.join(' ')} ${win ? 'Jackpot!' : 'You lose.'}`;
+      }
+      if (game === 'bomb') {
+        let mult = 1, safe = true;
+        for (let i = 0; i < 5; i++) {
+          if (Math.random() < 0.15) { safe = false; break; }
+          mult += 0.5;
+        }
+        delta = safe ? Math.floor(bet * mult * streakMult) : -bet;
+        result = safe ? `Bomb: You won ${delta} coins! Multiplier x${mult}` : 'Bomb: 💣 You hit a bomb!';
+      }
+
+      await supa.from('users').update({ coins: data.coins + delta, xp: data.xp + 5 }).eq('user_id', uid);
+      return msg.reply(`${result}\nYou ${delta >= 0 ? 'gained' : 'lost'} ${Math.abs(delta)} coins.`);
+    }
+  } else {
+    const { data } = await supa.from('users').select().eq('user_id', uid).single();
+    const xpGain = 2 * (1 + data.streak * 0.01);
+    const newXp = data.xp + Math.floor(xpGain);
+    const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
+    await supa.from('users').update({ xp: newXp, lvl: newLvl }).eq('user_id', uid);
   }
 });
 
-client.login(process.env.DISCORD_TOKEN);
+bot.login(process.env.DISCORD_TOKEN);
