@@ -130,8 +130,18 @@ bot.on('messageCreate', async msg => {
   const now = new Date().toISOString().split('T')[0];
 
   const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
-  const excluded = setting?.excluded_channels || [];
+  let excluded = setting?.excluded_channels || [];
+
+  if (typeof excluded === 'string') {
+    try {
+      excluded = JSON.parse(excluded);
+    } catch (err) {
+      excluded = [];
+    }
+  }
+  
   if (excluded.includes(cid)) return;
+
 
   const xpGain = setting?.message_points || settingsConfig.default_message_points;
 
