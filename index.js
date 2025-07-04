@@ -8,7 +8,7 @@ dotenv.config();
 const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const bot = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] });
 
-// Register slash commands (run once)
+// Register slash commands
 bot.on('ready', async () => {
   const cmds = [
     new SlashCommandBuilder().setName('balance').setDescription('Show your stats'),
@@ -33,10 +33,8 @@ bot.on('ready', async () => {
       .addRoleOption(opt => opt.setName('role').setDescription('Role to add to shop').setRequired(true))
       .addIntegerOption(opt => opt.setName('cost').setDescription('Cost in coins').setRequired(true))
       .setDescription('Add a role to the shop (admin only)'),
-    new SlashCommandBuilder().setName('shop')
-      .setDescription('View the shop roles available for purchase'),
-    new SlashCommandBuilder().setName('help')
-      .setDescription('Show command help')
+    new SlashCommandBuilder().setName('shop').setDescription('View the shop roles available for purchase'),
+    new SlashCommandBuilder().setName('help').setDescription('Show command help')
   ].map(c => c.toJSON());
   await bot.application.commands.set(cmds);
   console.log('Bot ready');
@@ -45,7 +43,6 @@ bot.on('ready', async () => {
 bot.on('interactionCreate', async inter => {
   if (!inter.isChatInputCommand()) return;
   const uid = inter.user.id;
-
   const now = new Date().toISOString().split('T')[0];
 
   let { data, error } = await supa.from('users').select().eq('user_id', uid).single();
@@ -68,8 +65,7 @@ bot.on('interactionCreate', async inter => {
   }
 
   if (inter.commandName === 'help') {
-    return inter.reply(`📘 **Bot Help**
-
+    return inter.reply(`📘 **Bot Help**\n
 /balance - Show your XP, coins, level, streak
 /gamble [game] [bet] - Play highlow, coinflip, dice, slots, or bomb
 /buycurrency [amount] - Convert XP into coins (10 XP = 1 coin)
@@ -194,13 +190,31 @@ bot.on('interactionCreate', async inter => {
 bot.on('messageCreate', async msg => {
   if (msg.author.bot) return;
   const uid = msg.author.id;
-  const { data } = await supa.from('users').select().eq('user_id', uid).single();
+  const now = new Date().toISOString().split('T')[0];
+
+  let { data, error } = await supa.from('users').select().eq('user_id', uid).single();
+
+  if (!data) {
+    const insertResult = await supa.from('users').insert({
+      user_id: uid,
+      coins: 0,
+      xp: 2,
+      lvl: 1,
+      streak: 1,
+      last_active: now
+    }).select().single();
+    data = insertResult.data;
+  } else if (data.last_active !== now) {
+    const yesterday = new Date(Date.now() - 86400e3).toISOString().split('T')[0];
+    const newStreak = data.last_active === yesterday ? data.streak + 1 : 1;
+    await supa.from('users').update({ streak: newStreak, last_active: now }).eq('user_id', uid);
+    data.streak = newStreak;
+  }
+
   const xpGain = 2 * (1 + data.streak * 0.01);
   const newXp = data.xp + Math.floor(xpGain);
   const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
-  await supa.from('users')
-    .update({ xp: newXp, lvl: newLvl })
-    .eq('user_id', uid);
+  await supa.from('users').update({ xp: newXp, lvl: newLvl }).eq('user_id', uid);
 });
 
 bot.login(process.env.DISCORD_TOKEN);
