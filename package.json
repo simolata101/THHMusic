@@ -1,22 +1,27 @@
 {
   "name": "discord-xp-bot",
   "version": "1.0.0",
-  "description": "Discord XP system bot with Supabase integration",
+  "description": "A Discord bot with XP, leveling, leaderboard, XP decay, and channel-based XP exclusion using Supabase.",
   "main": "index.js",
-  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
+  "keywords": [
+    "discord",
+    "bot",
+    "xp",
+    "leveling",
+    "supabase"
+  ],
+  "author": "Ibarra",
+  "license": "MIT",
   "dependencies": {
-    "@supabase/supabase-js": "^2.39.6",
+    "@supabase/supabase-js": "^2.39.5",
     "discord.js": "^14.14.1",
     "dotenv": "^16.4.5",
     "node-cron": "^3.0.3"
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "keywords": ["discord", "xp", "bot", "supabase", "leveling"],
-  "author": "Ibarra",
-  "license": "Hangout Haven"
+  }
 }
