@@ -153,6 +153,7 @@ bot.on('messageCreate', async msg => {
 // Make sure all values are strings for comparison
   excluded = excluded.map(id => id.toString());
 
+  console.log(excluded);
   if (excluded.includes(cid)) return;
 
   const xpGain = setting?.message_points ??
