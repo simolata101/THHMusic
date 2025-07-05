@@ -67,7 +67,7 @@ bot.on('interactionCreate', async inter => {
   if (inter.commandName === 'help') {
     const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
     const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
-    const { data: decay } = await supa.from('decay_settings').select().eq('guild_id', gid).single();
+    const { data: decay } = await supa.from('decay_config').select().eq('guild_id', gid).single();
 
     const allowedList = allowed?.map(a => `<#${a.channel_id}>`).join(', ') || '*None*';
     const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
@@ -200,7 +200,7 @@ bot.on('messageCreate', async msg => {
 // Decay Cron Job
 cron.schedule('0 4 * * *', async () => {
   const today = new Date();
-  const { data: guilds } = await supa.from('decay_settings').select();
+  const { data: guilds } = await supa.from('decay_config').select();
 
   const { data: users } = await supa.from('users').select();
 
