@@ -1,4 +1,4 @@
-// index.js
+// index.js (ESM version, requires "type": "module" in package.json)
 import { Client, GatewayIntentBits, SlashCommandBuilder, PermissionsBitField } from 'discord.js';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
@@ -6,7 +6,7 @@ import fs from 'fs';
 import cron from 'node-cron';
 dotenv.config();
 
-// Load JSON fallback configs
+// Load configs
 const settingsConfig = JSON.parse(fs.readFileSync('./config/settings.json', 'utf8'));
 const decayConfig = JSON.parse(fs.readFileSync('./config/decay.json', 'utf8'));
 
@@ -20,7 +20,7 @@ const bot = new Client({
   ]
 });
 
-// Slash command registration
+// Register Slash Commands
 bot.on('ready', async () => {
   const cmds = [
     new SlashCommandBuilder().setName('balance').setDescription('Show your stats'),
@@ -28,17 +28,17 @@ bot.on('ready', async () => {
     new SlashCommandBuilder().setName('leaderboard').setDescription('Show top 10 users'),
     new SlashCommandBuilder().setName('role')
       .addRoleOption(opt => opt.setName('role').setDescription('Role to assign to top user').setRequired(true))
-      .setDescription('Set reward role for top user'),
+      .setDescription('Set the top user reward role (admin only)'),
     new SlashCommandBuilder().setName('setmessagepoints')
-      .addIntegerOption(opt => opt.setName('amount').setDescription('XP per message').setRequired(true))
-      .setDescription('Set XP gain per message (Admin only)')
+      .addIntegerOption(opt => opt.setName('amount').setDescription('XP points per message').setRequired(true))
+      .setDescription('Set how much XP each message gives (admin only)')
   ].map(c => c.toJSON());
 
   await bot.application.commands.set(cmds);
   console.log('✅ Bot is ready');
 });
 
-// Slash command handling
+// Slash Command Handling
 bot.on('interactionCreate', async inter => {
   if (!inter.isChatInputCommand()) return;
   const uid = inter.user.id;
@@ -48,10 +48,10 @@ bot.on('interactionCreate', async inter => {
   // Ensure user exists
   let { data: userData } = await supa.from('users').select().eq('user_id', uid).single();
   if (!userData) {
-    const insert = await supa.from('users').insert({
-      user_id: uid, xp: 0, lvl: 1, coins: 0, streak: 1, last_active: now
+    const insertResult = await supa.from('users').insert({
+      user_id: uid, coins: 0, xp: 0, lvl: 1, streak: 1, last_active: now
     }).select().single();
-    userData = insert.data;
+    userData = insertResult.data;
   } else if (userData.last_active !== now) {
     const yesterday = new Date(Date.now() - 86400e3).toISOString().split('T')[0];
     const newStreak = userData.last_active === yesterday ? userData.streak + 1 : 1;
@@ -59,10 +59,12 @@ bot.on('interactionCreate', async inter => {
     userData.streak = newStreak;
   }
 
-  // /help
   if (inter.commandName === 'help') {
     const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
-    const xpPerMessage = setting?.message_points ?? settingsConfig.default_message_points;
+    const msgPoints = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
+
+    const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
+    const allowedList = allowed.map(ch => `<#${ch.channel_id}>`).join(', ') || '*None configured*';
 
     return inter.reply({
       embeds: [{
@@ -70,44 +72,37 @@ bot.on('interactionCreate', async inter => {
         description: `
 **/balance** – View your XP, level, and streak  
 **/leaderboard** – Show top 10 users  
-**/role [role]** – Set reward role *(Admin)*  
-**/setmessagepoints [amount]** – Set XP gain *(Admin)*  
+**/role [role]** – Set reward role for #1 user *(Admin)*  
+**/setmessagepoints [amount]** – Set XP gain per message *(Admin)*  
 
-📈 Leveling formula: \`sqrt(xp / 10) + 1\`  
-📉 XP decays after ${decayConfig.days_before_decay} days by ${decayConfig.percentage_decay * 100}%  
-➕ XP per message: **${xpPerMessage} XP**  
-❌ No XP gain in excluded channels
+📈 Leveling: \`level = floor(sqrt(xp/10)) + 1\`  
+📉 XP decays after ${decayConfig.days_before_decay} days of inactivity by ${decayConfig.percentage_decay * 100}%  
+📤 Current XP Gain: **${msgPoints} XP** per message  
+📺 Allowed Channels: ${allowedList}
         `,
         color: 0x7a5cfa
       }]
     });
   }
 
-  // /balance
   if (inter.commandName === 'balance') {
     return inter.reply(`🌟 XP: ${userData.xp}, Level: ${userData.lvl}, Streak: ${userData.streak} days`);
   }
 
-  // /setmessagepoints
   if (inter.commandName === 'setmessagepoints') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator))
-      return inter.reply('❌ Only admins can do that.');
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins can do that.');
     const amt = inter.options.getInteger('amount');
-    const { error } = await supa.from('settings').upsert({ guild_id: gid, message_points: amt });
-    if (error) return inter.reply('❌ Failed to update setting.');
-    return inter.reply(`✅ XP per message set to **${amt}**.`);
+    await supa.from('settings').upsert({ guild_id: gid, message_points: amt });
+    return inter.reply(`✅ Message XP set to ${amt} per message.`);
   }
 
-  // /role
   if (inter.commandName === 'role') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator))
-      return inter.reply('❌ Only admins can do that.');
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins can do that.');
     const role = inter.options.getRole('role');
     await supa.from('leaderboard_config').upsert({ guild_id: gid, role_id: role.id });
     return inter.reply(`🎖️ Role **${role.name}** will now be given to the top user.`);
   }
 
-  // /leaderboard
   if (inter.commandName === 'leaderboard') {
     const { data: top } = await supa.from('users').select().order('xp', { ascending: false }).limit(10);
     const members = await inter.guild.members.fetch();
@@ -121,6 +116,7 @@ bot.on('interactionCreate', async inter => {
       const topUserId = top[0]?.user_id;
       const oldUserId = config.last_top_user;
       const role = inter.guild.roles.cache.get(config.role_id);
+
       if (topUserId !== oldUserId && topUserId && role) {
         if (oldUserId) {
           const oldMember = inter.guild.members.cache.get(oldUserId);
@@ -142,7 +138,7 @@ bot.on('interactionCreate', async inter => {
   }
 });
 
-// XP on message
+// XP awarding with allowed_channels
 bot.on('messageCreate', async msg => {
   if (msg.author.bot || !msg.guild) return;
   const uid = msg.author.id;
@@ -150,14 +146,16 @@ bot.on('messageCreate', async msg => {
   const cid = msg.channel.id;
   const now = new Date().toISOString().split('T')[0];
 
+  // Fetch allowed channels
+  const { data: allowed } = await supa.from('allowed_channels').select('channel_id').eq('guild_id', gid);
+  const allowedIds = allowed.map(c => c.channel_id.toString());
+  if (!allowedIds.includes(cid)) return;
+
+  // Fetch message XP points
   const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
-  const { data: excludes } = await supa.from('excluded_channels').select('channel_id');
-  const excluded = (excludes || []).map(row => row.channel_id.toString());
+  const xpGain = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
 
-  if (excluded.includes(cid)) return;
-
-  const xpGain = setting?.message_points ?? settingsConfig.default_message_points;
-
+  // User fetch
   let { data: user } = await supa.from('users').select().eq('user_id', uid).single();
   if (!user) {
     const res = await supa.from('users').insert({
@@ -177,7 +175,7 @@ bot.on('messageCreate', async msg => {
   if (leveledUp) msg.channel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
 });
 
-// Decay job (daily at 4 AM)
+// Decay XP via cron
 cron.schedule('0 4 * * *', async () => {
   const today = new Date();
   const cutoff = new Date(today - decayConfig.days_before_decay * 86400e3);
@@ -193,5 +191,5 @@ cron.schedule('0 4 * * *', async () => {
   }
 });
 
-// Bot login
+// Login
 bot.login(process.env.DISCORD_TOKEN);
