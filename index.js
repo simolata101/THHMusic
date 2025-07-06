@@ -111,8 +111,8 @@ bot.on('interactionCreate', async inter => {
       ${decayInfo}  
       
       🎖️ **Level Roles:**  
-      ${roleList}`
-      📢 Level-up messages: ${levelUpChannel},
+      ${roleList}
+      📢 Level-up messages: ${levelUpChannel}`,
       color: 0x7a5cfa
     }] });
   }
