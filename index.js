@@ -41,7 +41,14 @@ bot.on('ready', async () => {
       .addIntegerOption(opt => opt.setName('min').setDescription('Min level').setRequired(true))
       .addIntegerOption(opt => opt.setName('max').setDescription('Max level').setRequired(true))
       .addRoleOption(opt => opt.setName('role').setDescription('Role to assign').setRequired(true))
-      .setDescription('Set auto role by level range (Admin)')
+      .setDescription('Set auto role by level range (Admin)'),
+    new SlashCommandBuilder().setName('setlevelupchannel')
+      .addChannelOption(opt =>
+        opt.setName('channel')
+          .setDescription('Channel for level-up and role messages')
+          .setRequired(true)
+      )
+  .setDescription('Set the channel for level-up and role notifications (Admin)')
   ].map(c => c.toJSON());
 
   await bot.application.commands.set(cmds);
@@ -104,7 +111,8 @@ bot.on('interactionCreate', async inter => {
       ${decayInfo}  
       
       🎖️ **Level Roles:**  
-      ${roleList}`,
+      ${roleList}`
+      📢 Level-up messages: ${levelUpChannel},
       color: 0x7a5cfa
     }] });
   }
@@ -130,6 +138,21 @@ bot.on('interactionCreate', async inter => {
     await supa.from('allowed_channels').delete().eq('guild_id', gid).eq('channel_id', channel.id);
     return inter.reply(`🚫 XP disabled in <#${channel.id}>`);
   }
+
+  if (inter.commandName === 'setlevelupchannel') {
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+      return inter.reply('❌ Admin only.');
+    }
+
+    const channel = inter.options.getChannel('channel');
+    if (!channel.isTextBased()) {
+      return inter.reply('❌ Please select a text-based channel.');
+    }
+
+    await supa.from('settings').upsert({ guild_id: gid, levelup_channel: channel.id });
+    return inter.reply(`📢 Level-up messages will now be sent in <#${channel.id}>.`);
+  }
+
 
   if (inter.commandName === 'setrole') {
     if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
@@ -201,7 +224,19 @@ bot.on('messageCreate', async msg => {
   await supa.from('users').update({ xp: newXp, lvl: newLvl, last_active: now }).eq('user_id', uid);
 
   if (leveledUp) {
-    msg.channel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
+    const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
+    const levelUpChannel = setting?.levelup_channel ? `<#${setting.levelup_channel}>` : '*Not set*';
+
+    const announceChannelId = setting?.levelup_channel;
+    const announceChannel = announceChannelId ? msg.guild.channels.cache.get(announceChannelId) : msg.channel;
+    
+    announceChannel?.isTextBased() && announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
+
+    if (role && !member.roles.cache.has(role.id)) {
+      await member.roles.add(role);
+      announceChannel?.isTextBased() && announceChannel.send(`🧩 <@${uid}> has been given the **${role.name}** role for reaching level ${newLvl}!`);
+    }
+
 
     const { data: roles } = await supa.from('level_roles').select().eq('guild_id', gid);
     const match = roles?.find(r => newLvl >= r.min_level && newLvl <= r.max_level);
