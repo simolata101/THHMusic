@@ -1,3 +1,4 @@
+// index.js
 import { Client, GatewayIntentBits, SlashCommandBuilder, PermissionsBitField } from 'discord.js';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
@@ -5,10 +6,9 @@ import fs from 'fs';
 import cron from 'node-cron';
 dotenv.config();
 
-// Load fallback config
 const settingsConfig = JSON.parse(fs.readFileSync('./config/settings.json', 'utf8'));
-
 const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
 const bot = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -21,7 +21,8 @@ const bot = new Client({
 // Slash Command Setup
 bot.on('ready', async () => {
   const cmds = [
-    new SlashCommandBuilder().setName('balance').setDescription('Show your stats'),
+    new SlashCommandBuilder().setName('showstatus').setDescription('Show your stats')
+      .addUserOption(opt => opt.setName('user').setDescription('User to view')),
     new SlashCommandBuilder().setName('help').setDescription('Show help command'),
     new SlashCommandBuilder().setName('leaderboard').setDescription('Show top 10 users'),
     new SlashCommandBuilder().setName('setmessagepoints')
@@ -33,9 +34,11 @@ bot.on('ready', async () => {
     new SlashCommandBuilder().setName('removechannel')
       .addChannelOption(opt => opt.setName('channel').setDescription('Remove channel from XP gain').setRequired(true))
       .setDescription('Disallow XP in this channel (Admin)'),
-    new SlashCommandBuilder().setName('role')
-      .addRoleOption(opt => opt.setName('role').setDescription('Role to assign to top user').setRequired(true))
-      .setDescription('Set role reward for top user (Admin)')
+    new SlashCommandBuilder().setName('setrole')
+      .addIntegerOption(opt => opt.setName('min').setDescription('Min level').setRequired(true))
+      .addIntegerOption(opt => opt.setName('max').setDescription('Max level').setRequired(true))
+      .addRoleOption(opt => opt.setName('role').setDescription('Role to assign').setRequired(true))
+      .setDescription('Set auto role by level range (Admin)')
   ].map(c => c.toJSON());
 
   await bot.application.commands.set(cmds);
@@ -45,7 +48,6 @@ bot.on('ready', async () => {
 // Slash Command Handler
 bot.on('interactionCreate', async inter => {
   if (!inter.isChatInputCommand()) return;
-
   const uid = inter.user.id;
   const gid = inter.guildId;
   const now = new Date().toISOString().split('T')[0];
@@ -53,15 +55,20 @@ bot.on('interactionCreate', async inter => {
   // Ensure user exists
   let { data: userData } = await supa.from('users').select().eq('user_id', uid).single();
   if (!userData) {
-    const res = await supa.from('users').insert({
-      user_id: uid, coins: 0, xp: 0, lvl: 1, streak: 1, last_active: now
-    }).select().single();
+    const res = await supa.from('users').insert({ user_id: uid, coins: 0, xp: 0, lvl: 1, streak: 1, last_active: now }).select().single();
     userData = res.data;
-  } else if (userData.last_active !== now) {
+  } else {
     const yesterday = new Date(Date.now() - 86400e3).toISOString().split('T')[0];
-    const newStreak = userData.last_active === yesterday ? userData.streak + 1 : 1;
+    const newStreak = userData.last_active === yesterday ? userData.streak + 1 : (userData.last_active === now ? userData.streak : 1);
     await supa.from('users').update({ streak: newStreak, last_active: now }).eq('user_id', uid);
     userData.streak = newStreak;
+  }
+
+  if (inter.commandName === 'showstatus') {
+    const target = inter.options.getUser('user') || inter.user;
+    const { data: targetData } = await supa.from('users').select().eq('user_id', target.id).single();
+    if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
+    return inter.reply(`🌟 <@${target.id}>\nXP: ${targetData.xp}\nLevel: ${targetData.lvl}\nStreak: ${targetData.streak} days`);
   }
 
   if (inter.commandName === 'help') {
@@ -71,43 +78,24 @@ bot.on('interactionCreate', async inter => {
 
     const allowedList = allowed?.map(a => `<#${a.channel_id}>`).join(', ') || '*None*';
     const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
-    const decayInfo = decay
-      ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%`
-      : '🕒 No decay configured.';
+    const decayInfo = decay ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : '🕒 No decay configured.';
 
-    return inter.reply({
-      embeds: [{
-        title: '📘 Help Menu',
-        description: `
-**/balance** – View your XP, level, and streak  
-**/leaderboard** – Show top 10 users  
-**/role [role]** – Set reward role for #1 user *(Admin)*  
-**/setmessagepoints [amount]** – Set XP gain per message *(Admin)*  
-**/allowchannel [#channel]** – Allow XP in this channel *(Admin)*  
-**/removechannel [#channel]** – Remove channel from XP gain *(Admin)*  
-
-📊 Message XP per message: **${msgPoints}**
-📺 Allowed XP channels: ${allowedList}
-${decayInfo}
-`,
-        color: 0x7a5cfa
-      }]
-    });
-  }
-
-  if (inter.commandName === 'balance') {
-    return inter.reply(`🌟 XP: ${userData.xp}, Level: ${userData.lvl}, Streak: ${userData.streak} days`);
+    return inter.reply({ embeds: [{
+      title: '📘 Help Menu',
+      description: `**/showstatus [user]** – View XP, level, streak\n**/leaderboard** – Show top 10 users\n**/setrole [min] [max] [role]** – Auto-assign role\n**/setmessagepoints** – Set XP gain per message\n**/allowchannel [#channel]** – Allow XP in channel\n**/removechannel [#channel]** – Block XP in channel\n\n📊 XP per message: **${msgPoints}**\n📺 Allowed XP channels: ${allowedList}\n${decayInfo}`,
+      color: 0x7a5cfa
+    }] });
   }
 
   if (inter.commandName === 'setmessagepoints') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins can do that.');
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
     const amt = inter.options.getInteger('amount');
     await supa.from('settings').upsert({ guild_id: gid, message_points: amt });
     return inter.reply(`✅ XP per message set to **${amt}**.`);
   }
 
   if (inter.commandName === 'allowchannel') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins can do that.');
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
     const channel = inter.options.getChannel('channel');
     if (!channel.isTextBased()) return inter.reply('❌ Please select a text-based channel.');
     await supa.from('allowed_channels').upsert({ guild_id: gid, channel_id: channel.id });
@@ -115,51 +103,35 @@ ${decayInfo}
   }
 
   if (inter.commandName === 'removechannel') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins can do that.');
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
     const channel = inter.options.getChannel('channel');
     await supa.from('allowed_channels').delete().eq('guild_id', gid).eq('channel_id', channel.id);
     return inter.reply(`🚫 XP disabled in <#${channel.id}>`);
   }
 
-  if (inter.commandName === 'role') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins can do that.');
+  if (inter.commandName === 'setrole') {
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
+    const min = inter.options.getInteger('min');
+    const max = inter.options.getInteger('max');
     const role = inter.options.getRole('role');
-    await supa.from('leaderboard_config').upsert({ guild_id: gid, role_id: role.id });
-    return inter.reply(`🎖️ Role **${role.name}** will now be given to the top user.`);
+
+    const { data: existing } = await supa.from('level_roles').select().eq('guild_id', gid);
+    const overlapping = existing?.some(r =>
+      (min >= r.min_level && min <= r.max_level) ||
+      (max >= r.min_level && max <= r.max_level)
+    );
+    if (overlapping) return inter.reply('❌ Overlapping level range exists.');
+
+    await supa.from('level_roles').insert({ guild_id: gid, min_level: min, max_level: max, role_id: role.id });
+    return inter.reply(`🎖️ Role **${role.name}** will now be assigned to levels ${min}–${max}`);
   }
 
   if (inter.commandName === 'leaderboard') {
     const { data: top } = await supa.from('users').select().order('xp', { ascending: false }).limit(10);
     const members = await inter.guild.members.fetch();
-    const list = top.map((u, i) => {
-      const name = members.get(u.user_id)?.displayName || `<@${u.user_id}>`;
-      return `**${i + 1}.** ${name} – ${u.xp} XP`;
-    }).join('\n');
+    const list = top.map((u, i) => `**${i + 1}.** ${members.get(u.user_id)?.displayName || `<@${u.user_id}>`} – ${u.xp} XP`).join('\n');
 
-    const { data: config } = await supa.from('leaderboard_config').select().eq('guild_id', gid).single();
-    if (config) {
-      const topUserId = top[0]?.user_id;
-      const oldUserId = config.last_top_user;
-      const role = inter.guild.roles.cache.get(config.role_id);
-
-      if (topUserId !== oldUserId && topUserId && role) {
-        if (oldUserId) {
-          const oldMember = inter.guild.members.cache.get(oldUserId);
-          if (oldMember?.roles.cache.has(role.id)) await oldMember.roles.remove(role);
-        }
-        const newMember = inter.guild.members.cache.get(topUserId);
-        if (newMember && !newMember.roles.cache.has(role.id)) await newMember.roles.add(role);
-        await supa.from('leaderboard_config').update({ last_top_user: topUserId }).eq('guild_id', gid);
-      }
-    }
-
-    return inter.reply({
-      embeds: [{
-        title: "🏆 Top 10 Leaderboard",
-        description: list,
-        color: 0xffcc00
-      }]
-    });
+    return inter.reply({ embeds: [{ title: '🏆 Top 10 Leaderboard', description: list, color: 0xffcc00 }] });
   }
 });
 
@@ -172,17 +144,14 @@ bot.on('messageCreate', async msg => {
   const now = new Date().toISOString().split('T')[0];
 
   const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
-  const allowedIds = allowed?.map(x => x.channel_id.toString()) ?? [];
-  if (!allowedIds.includes(cid)) return;
+  if (!allowed?.some(c => c.channel_id === cid)) return;
 
   const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
   const xpGain = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
 
   let { data: user } = await supa.from('users').select().eq('user_id', uid).single();
   if (!user) {
-    const res = await supa.from('users').insert({
-      user_id: uid, xp: 0, lvl: 1, coins: 0, streak: 1, last_active: now
-    }).select().single();
+    const res = await supa.from('users').insert({ user_id: uid, xp: 0, lvl: 1, coins: 0, streak: 1, last_active: now }).select().single();
     user = res.data;
   }
 
@@ -190,23 +159,29 @@ bot.on('messageCreate', async msg => {
   const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
   const leveledUp = newLvl > user.lvl;
 
-  await supa.from('users').update({
-    xp: newXp, lvl: newLvl, last_active: now
-  }).eq('user_id', uid);
+  await supa.from('users').update({ xp: newXp, lvl: newLvl, last_active: now }).eq('user_id', uid);
 
-  if (leveledUp) msg.channel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
+  if (leveledUp) {
+    msg.channel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
+
+    const { data: roles } = await supa.from('level_roles').select().eq('guild_id', gid);
+    const match = roles?.find(r => newLvl >= r.min_level && newLvl <= r.max_level);
+    if (match) {
+      const member = await msg.guild.members.fetch(uid);
+      const role = msg.guild.roles.cache.get(match.role_id);
+      if (role && !member.roles.cache.has(role.id)) await member.roles.add(role);
+    }
+  }
 });
 
-// Decay Cron Job
+// XP Decay Job
 cron.schedule('0 4 * * *', async () => {
   const today = new Date();
-  const { data: guilds } = await supa.from('decay_config').select();
-
+  const { data: configs } = await supa.from('decay_config').select();
   const { data: users } = await supa.from('users').select();
 
-  for (const g of guilds) {
+  for (const g of configs) {
     const cutoff = new Date(today - g.days_before_decay * 86400e3).toISOString().split('T')[0];
-
     for (const u of users) {
       if (u.last_active < cutoff) {
         const newXp = Math.floor(u.xp * (1 - g.percentage_decay));
