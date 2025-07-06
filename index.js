@@ -105,6 +105,7 @@ bot.on('interactionCreate', async inter => {
       **/setmessagepoints [amount]** – Set XP gain per message  
       **/allowchannel [#channel]** – Allow XP in channel  
       **/removechannel [#channel]** – Block XP in channel  
+      **/setlevelupchannel [#channel]** – Set level-up message channel
       
       📊 XP per message: **${msgPoints}**  
       📺 Allowed XP channels: ${allowedList}  
