@@ -78,6 +78,12 @@ bot.on('interactionCreate', async inter => {
     const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
     const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
     const { data: decay } = await supa.from('decay_config').select().eq('guild_id', gid).single();
+    const { data: levelRoles } = await supa.from('level_roles').select().eq('guild_id', gid);
+    const roleList = levelRoles?.map(r => {
+      const roleObj = inter.guild.roles.cache.get(r.role_id);
+      return roleObj ? `• ${roleObj.name}: Levels ${r.min_level}–${r.max_level}` : null;
+    }).filter(Boolean).join('\n') || '*None set*';
+
 
     const allowedList = allowed?.map(a => `<#${a.channel_id}>`).join(', ') || '*None*';
     const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
@@ -85,17 +91,20 @@ bot.on('interactionCreate', async inter => {
 
     return inter.reply({ embeds: [{
       title: '📘 Help Menu',
-      description: `**/showstatus [user]** – View XP, level, streak
-      **/leaderboard** – Show top 10 users
-      **/setrole [min] [max] [role]** – Auto-assign role
-      **/removerole [role]** – Remove auto role
-      **/setmessagepoints [amount]** – Set XP gain per message
-      **/allowchannel [#channel]** – Allow XP in channel
-      **/removechannel [#channel]** – Block XP in channel
+      description: `**/showstatus [user]** – View XP, level, streak  
+      **/leaderboard** – Show top 10 users  
+      **/setrole [min] [max] [role]** – Auto-assign role  
+      **/removerole [role]** – Remove auto role  
+      **/setmessagepoints [amount]** – Set XP gain per message  
+      **/allowchannel [#channel]** – Allow XP in channel  
+      **/removechannel [#channel]** – Block XP in channel  
       
-      📊 XP per message: **${msgPoints}**
-      📺 Allowed XP channels: ${allowedList}
-      ${decayInfo}`,
+      📊 XP per message: **${msgPoints}**  
+      📺 Allowed XP channels: ${allowedList}  
+      ${decayInfo}  
+      
+      🎖️ **Level Roles:**  
+      ${roleList}`,
       color: 0x7a5cfa
     }] });
   }
