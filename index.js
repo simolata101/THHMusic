@@ -90,7 +90,7 @@ bot.on('interactionCreate', async inter => {
       const roleObj = inter.guild.roles.cache.get(r.role_id);
       return roleObj ? `• ${roleObj.name}: Levels ${r.min_level}–${r.max_level}` : null;
     }).filter(Boolean).join('\n') || '*None set*';
-
+    const levelUpChannel = setting?.levelup_channel ? `<#${setting.levelup_channel}>` : '*Not set*';
 
     const allowedList = allowed?.map(a => `<#${a.channel_id}>`).join(', ') || '*None*';
     const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
