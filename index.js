@@ -233,19 +233,18 @@ bot.on('messageCreate', async msg => {
     
     announceChannel?.isTextBased() && announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
 
-    if (role && !member.roles.cache.has(role.id)) {
-      await member.roles.add(role);
-      announceChannel?.isTextBased() && announceChannel.send(`🧩 <@${uid}> has been given the **${role.name}** role for reaching level ${newLvl}!`);
-    }
-
 
     const { data: roles } = await supa.from('level_roles').select().eq('guild_id', gid);
     const match = roles?.find(r => newLvl >= r.min_level && newLvl <= r.max_level);
-    if (match) {
-      const member = await msg.guild.members.fetch(uid);
-      const role = msg.guild.roles.cache.get(match.role_id);
-      if (role && !member.roles.cache.has(role.id)) await member.roles.add(role);
-    }
+      if (match) {
+          const member = await msg.guild.members.fetch(uid);
+          const role = msg.guild.roles.cache.get(match.role_id);
+      
+          if (role && !member.roles.cache.has(role.id)) {
+            await member.roles.add(role);
+            msg.channel.send(`🛡️ <@${uid}> received role **${role.name}**!`);
+          }
+      }
   }
 });
 
