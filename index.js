@@ -1,4 +1,3 @@
-// index.js
 import { Client, GatewayIntentBits, SlashCommandBuilder, PermissionsBitField } from 'discord.js';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
@@ -18,11 +17,10 @@ const bot = new Client({
   ]
 });
 
-// Slash Command Setup
 bot.on('ready', async () => {
   const cmds = [
-    new SlashCommandBuilder().setName('showstatus').setDescription('Show your stats')
-      .addUserOption(opt => opt.setName('user').setDescription('User to view')),
+    new SlashCommandBuilder().setName('showstatus').setDescription('Show your or another user\'s stats')
+      .addUserOption(opt => opt.setName('user').setDescription('User to show')),
     new SlashCommandBuilder().setName('help').setDescription('Show help command'),
     new SlashCommandBuilder().setName('leaderboard').setDescription('Show top 10 users'),
     new SlashCommandBuilder().setName('setmessagepoints')
@@ -35,107 +33,95 @@ bot.on('ready', async () => {
       .addChannelOption(opt => opt.setName('channel').setDescription('Remove channel from XP gain').setRequired(true))
       .setDescription('Disallow XP in this channel (Admin)'),
     new SlashCommandBuilder().setName('setrole')
-      .addIntegerOption(opt => opt.setName('min').setDescription('Min level').setRequired(true))
-      .addIntegerOption(opt => opt.setName('max').setDescription('Max level').setRequired(true))
       .addRoleOption(opt => opt.setName('role').setDescription('Role to assign').setRequired(true))
-      .setDescription('Set auto role by level range (Admin)')
+      .addIntegerOption(opt => opt.setName('minlevel').setDescription('Min level').setRequired(true))
+      .addIntegerOption(opt => opt.setName('maxlevel').setDescription('Max level').setRequired(true))
+      .setDescription('Set auto role based on level range (Admin)'),
+    new SlashCommandBuilder().setName('removerole')
+      .addIntegerOption(opt => opt.setName('minlevel').setDescription('Min level of range').setRequired(true))
+      .addIntegerOption(opt => opt.setName('maxlevel').setDescription('Max level of range').setRequired(true))
+      .setDescription('Remove set level role range (Admin)'),
+    new SlashCommandBuilder().setName('setstreakconfig')
+      .addIntegerOption(opt => opt.setName('reset_after_days').setDescription('Days to reset streak').setRequired(true))
+      .setDescription('Set streak reset policy (Admin)'),
+    new SlashCommandBuilder().setName('updatestreak').setDescription('Force streak update now'),
+    new SlashCommandBuilder().setName('setlevelupchannel')
+      .addChannelOption(opt => opt.setName('channel').setDescription('Channel for level-up messages').setRequired(true))
+      .setDescription('Set level-up announcement channel (Admin)')
   ].map(c => c.toJSON());
 
   await bot.application.commands.set(cmds);
   console.log('✅ Bot is ready');
 });
 
-// Slash Command Handler
 bot.on('interactionCreate', async inter => {
   if (!inter.isChatInputCommand()) return;
   const uid = inter.user.id;
   const gid = inter.guildId;
   const now = new Date().toISOString().split('T')[0];
 
-  // Ensure user exists
   let { data: userData } = await supa.from('users').select().eq('user_id', uid).single();
   if (!userData) {
-    const res = await supa.from('users').insert({ user_id: uid, coins: 0, xp: 0, lvl: 1, streak: 1, last_active: now }).select().single();
+    const res = await supa.from('users').insert({
+      user_id: uid, coins: 0, xp: 0, lvl: 1, streak: 1, last_active: now
+    }).select().single();
     userData = res.data;
-  } else {
-    const yesterday = new Date(Date.now() - 86400e3).toISOString().split('T')[0];
-    const newStreak = userData.last_active === yesterday ? userData.streak + 1 : (userData.last_active === now ? userData.streak : 1);
-    await supa.from('users').update({ streak: newStreak, last_active: now }).eq('user_id', uid);
-    userData.streak = newStreak;
   }
 
   if (inter.commandName === 'showstatus') {
-    const target = inter.options.getUser('user') || inter.user;
-    const { data: targetData } = await supa.from('users').select().eq('user_id', target.id).single();
-    if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
-    return inter.reply(`🌟 <@${target.id}>\nXP: ${targetData.xp}\nLevel: ${targetData.lvl}\nStreak: ${targetData.streak} days`);
-  }
-
-  if (inter.commandName === 'help') {
-    const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
-    const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
-    const { data: decay } = await supa.from('decay_config').select().eq('guild_id', gid).single();
-
-    const allowedList = allowed?.map(a => `<#${a.channel_id}>`).join(', ') || '*None*';
-    const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
-    const decayInfo = decay ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : '🕒 No decay configured.';
-
-    return inter.reply({ embeds: [{
-      title: '📘 Help Menu',
-      description: `**/showstatus [user]** – View XP, level, streak\n**/leaderboard** – Show top 10 users\n**/setrole [min] [max] [role]** – Auto-assign role\n**/setmessagepoints** – Set XP gain per message\n**/allowchannel [#channel]** – Allow XP in channel\n**/removechannel [#channel]** – Block XP in channel\n\n📊 XP per message: **${msgPoints}**\n📺 Allowed XP channels: ${allowedList}\n${decayInfo}`,
-      color: 0x7a5cfa
-    }] });
-  }
-
-  if (inter.commandName === 'setmessagepoints') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
-    const amt = inter.options.getInteger('amount');
-    await supa.from('settings').upsert({ guild_id: gid, message_points: amt });
-    return inter.reply(`✅ XP per message set to **${amt}**.`);
-  }
-
-  if (inter.commandName === 'allowchannel') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
-    const channel = inter.options.getChannel('channel');
-    if (!channel.isTextBased()) return inter.reply('❌ Please select a text-based channel.');
-    await supa.from('allowed_channels').upsert({ guild_id: gid, channel_id: channel.id });
-    return inter.reply(`✅ XP now allowed in <#${channel.id}>`);
-  }
-
-  if (inter.commandName === 'removechannel') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
-    const channel = inter.options.getChannel('channel');
-    await supa.from('allowed_channels').delete().eq('guild_id', gid).eq('channel_id', channel.id);
-    return inter.reply(`🚫 XP disabled in <#${channel.id}>`);
+    const user = inter.options.getUser('user') || inter.user;
+    const { data } = await supa.from('users').select().eq('user_id', user.id).single();
+    if (!data) return inter.reply('❌ No data found.');
+    return inter.reply(`🌟 XP: ${data.xp}, Level: ${data.lvl}, Streak: ${data.streak} days`);
   }
 
   if (inter.commandName === 'setrole') {
-    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
-    const min = inter.options.getInteger('min');
-    const max = inter.options.getInteger('max');
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins.');
     const role = inter.options.getRole('role');
-
-    const { data: existing } = await supa.from('level_roles').select().eq('guild_id', gid);
-    const overlapping = existing?.some(r =>
-      (min >= r.min_level && min <= r.max_level) ||
-      (max >= r.min_level && max <= r.max_level)
-    );
-    if (overlapping) return inter.reply('❌ Overlapping level range exists.');
-
-    await supa.from('level_roles').insert({ guild_id: gid, min_level: min, max_level: max, role_id: role.id });
-    return inter.reply(`🎖️ Role **${role.name}** will now be assigned to levels ${min}–${max}`);
+    const min = inter.options.getInteger('minlevel');
+    const max = inter.options.getInteger('maxlevel');
+    const { data: conflict } = await supa.from('level_roles').select().eq('guild_id', gid);
+    if (conflict?.some(r => !(r.max_level < min || r.min_level > max)))
+      return inter.reply('❌ Overlapping range.');
+    await supa.from('level_roles').insert({ guild_id: gid, role_id: role.id, min_level: min, max_level: max });
+    return inter.reply(`✅ Role set for levels ${min}-${max}.`);
   }
 
-  if (inter.commandName === 'leaderboard') {
-    const { data: top } = await supa.from('users').select().order('xp', { ascending: false }).limit(10);
-    const members = await inter.guild.members.fetch();
-    const list = top.map((u, i) => `**${i + 1}.** ${members.get(u.user_id)?.displayName || `<@${u.user_id}>`} – ${u.xp} XP`).join('\n');
+  if (inter.commandName === 'removerole') {
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins.');
+    const min = inter.options.getInteger('minlevel');
+    const max = inter.options.getInteger('maxlevel');
+    await supa.from('level_roles').delete().eq('guild_id', gid).eq('min_level', min).eq('max_level', max);
+    return inter.reply(`🗑️ Removed role range ${min}-${max}.`);
+  }
 
-    return inter.reply({ embeds: [{ title: '🏆 Top 10 Leaderboard', description: list, color: 0xffcc00 }] });
+  if (inter.commandName === 'setstreakconfig') {
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins.');
+    const days = inter.options.getInteger('reset_after_days');
+    await supa.from('streak_config').upsert({ guild_id: gid, reset_after_days: days });
+    return inter.reply(`✅ Streak resets after ${days} day(s) of inactivity.`);
+  }
+
+  if (inter.commandName === 'updatestreak') {
+    const { data: streakcfg } = await supa.from('streak_config').select().eq('guild_id', gid).single();
+    const resetDays = streakcfg?.reset_after_days || 1;
+    const yesterday = new Date(Date.now() - resetDays * 86400e3).toISOString().split('T')[0];
+    if (userData.last_active !== now) {
+      const newStreak = userData.last_active === yesterday ? userData.streak + 1 : 1;
+      await supa.from('users').update({ streak: newStreak, last_active: now }).eq('user_id', uid);
+      return inter.reply(`🔁 Streak updated: ${newStreak}`);
+    }
+    return inter.reply('⚠️ Streak already updated today.');
+  }
+
+  if (inter.commandName === 'setlevelupchannel') {
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Only admins.');
+    const ch = inter.options.getChannel('channel');
+    await supa.from('levelup_config').upsert({ guild_id: gid, channel_id: ch.id });
+    return inter.reply(`📢 Level-up messages will be sent in <#${ch.id}>`);
   }
 });
 
-// Message XP Handler
 bot.on('messageCreate', async msg => {
   if (msg.author.bot || !msg.guild) return;
   const uid = msg.author.id;
@@ -144,43 +130,55 @@ bot.on('messageCreate', async msg => {
   const now = new Date().toISOString().split('T')[0];
 
   const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
-  if (!allowed?.some(c => c.channel_id === cid)) return;
+  const allowedIds = allowed?.map(x => x.channel_id.toString()) ?? [];
+  if (!allowedIds.includes(cid)) return;
 
   const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
   const xpGain = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
 
   let { data: user } = await supa.from('users').select().eq('user_id', uid).single();
   if (!user) {
-    const res = await supa.from('users').insert({ user_id: uid, xp: 0, lvl: 1, coins: 0, streak: 1, last_active: now }).select().single();
+    const res = await supa.from('users').insert({
+      user_id: uid, xp: 0, lvl: 1, coins: 0, streak: 1, last_active: now
+    }).select().single();
     user = res.data;
   }
+
+  const { data: streakcfg } = await supa.from('streak_config').select().eq('guild_id', gid).single();
+  const resetDays = streakcfg?.reset_after_days || 1;
+  const yesterday = new Date(Date.now() - resetDays * 86400e3).toISOString().split('T')[0];
+  let newStreak = user.streak;
+  if (user.last_active !== now) newStreak = user.last_active === yesterday ? user.streak + 1 : 1;
 
   const newXp = user.xp + xpGain;
   const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
   const leveledUp = newLvl > user.lvl;
 
-  await supa.from('users').update({ xp: newXp, lvl: newLvl, last_active: now }).eq('user_id', uid);
+  await supa.from('users').update({
+    xp: newXp, lvl: newLvl, last_active: now, streak: newStreak
+  }).eq('user_id', uid);
 
   if (leveledUp) {
-    msg.channel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
+    const { data: lvlupCfg } = await supa.from('levelup_config').select().eq('guild_id', gid).single();
+    const ch = lvlupCfg ? msg.guild.channels.cache.get(lvlupCfg.channel_id) : msg.channel;
+    if (ch?.isTextBased()) ch.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
 
     const { data: roles } = await supa.from('level_roles').select().eq('guild_id', gid);
-    const match = roles?.find(r => newLvl >= r.min_level && newLvl <= r.max_level);
-    if (match) {
+    const toAssign = roles?.find(r => newLvl >= r.min_level && newLvl <= r.max_level);
+    if (toAssign) {
+      const role = msg.guild.roles.cache.get(toAssign.role_id);
       const member = await msg.guild.members.fetch(uid);
-      const role = msg.guild.roles.cache.get(match.role_id);
       if (role && !member.roles.cache.has(role.id)) await member.roles.add(role);
     }
   }
 });
 
-// XP Decay Job
 cron.schedule('0 4 * * *', async () => {
   const today = new Date();
-  const { data: configs } = await supa.from('decay_config').select();
+  const { data: guilds } = await supa.from('decay_config').select();
   const { data: users } = await supa.from('users').select();
 
-  for (const g of configs) {
+  for (const g of guilds) {
     const cutoff = new Date(today - g.days_before_decay * 86400e3).toISOString().split('T')[0];
     for (const u of users) {
       if (u.last_active < cutoff) {
