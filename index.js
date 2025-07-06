@@ -34,6 +34,9 @@ bot.on('ready', async () => {
     new SlashCommandBuilder().setName('removechannel')
       .addChannelOption(opt => opt.setName('channel').setDescription('Remove channel from XP gain').setRequired(true))
       .setDescription('Disallow XP in this channel (Admin)'),
+    new SlashCommandBuilder().setName('removerole')
+      .addRoleOption(opt => opt.setName('role').setDescription('Role to remove').setRequired(true))
+      .setDescription('Remove an auto-assigned role (Admin)'),
     new SlashCommandBuilder().setName('setrole')
       .addIntegerOption(opt => opt.setName('min').setDescription('Min level').setRequired(true))
       .addIntegerOption(opt => opt.setName('max').setDescription('Max level').setRequired(true))
@@ -82,7 +85,17 @@ bot.on('interactionCreate', async inter => {
 
     return inter.reply({ embeds: [{
       title: '📘 Help Menu',
-      description: `**/showstatus [user]** – View XP, level, streak\n**/leaderboard** – Show top 10 users\n**/setrole [min] [max] [role]** – Auto-assign role\n**/setmessagepoints** – Set XP gain per message\n**/allowchannel [#channel]** – Allow XP in channel\n**/removechannel [#channel]** – Block XP in channel\n\n📊 XP per message: **${msgPoints}**\n📺 Allowed XP channels: ${allowedList}\n${decayInfo}`,
+      description: `**/showstatus [user]** – View XP, level, streak
+      **/leaderboard** – Show top 10 users
+      **/setrole [min] [max] [role]** – Auto-assign role
+      **/removerole [role]** – Remove auto role
+      **/setmessagepoints [amount]** – Set XP gain per message
+      **/allowchannel [#channel]** – Allow XP in channel
+      **/removechannel [#channel]** – Block XP in channel
+      
+      📊 XP per message: **${msgPoints}**
+      📺 Allowed XP channels: ${allowedList}
+      ${decayInfo}`,
       color: 0x7a5cfa
     }] });
   }
@@ -125,6 +138,23 @@ bot.on('interactionCreate', async inter => {
     await supa.from('level_roles').insert({ guild_id: gid, min_level: min, max_level: max, role_id: role.id });
     return inter.reply(`🎖️ Role **${role.name}** will now be assigned to levels ${min}–${max}`);
   }
+
+  if (inter.commandName === 'removerole') {
+  if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+    return inter.reply('❌ Admin only.');
+  }
+
+  const role = inter.options.getRole('role');
+  const { data: existing } = await supa.from('level_roles').select().eq('guild_id', gid).eq('role_id', role.id).single();
+
+  if (!existing) {
+    return inter.reply('❌ That role is not assigned through level roles.');
+  }
+
+  await supa.from('level_roles').delete().eq('guild_id', gid).eq('role_id', role.id);
+  return inter.reply(`🗑️ Removed **${role.name}** from level role assignments.`);
+}
+
 
   if (inter.commandName === 'leaderboard') {
     const { data: top } = await supa.from('users').select().order('xp', { ascending: false }).limit(10);
