@@ -248,26 +248,26 @@ bot.on('messageCreate', async msg => {
   await supa.from('users').update({ xp: newXp, lvl: newLvl, last_active: now }).eq('user_id', uid);
 
   if (leveledUp) {
-    const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
-    const levelUpChannel = setting?.levelup_channel ? `<#${setting.levelup_channel}>` : '*Not set*';
+  const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
+  const { data: roles } = await supa.from('level_roles').select().eq('guild_id', gid);
 
-    const announceChannelId = setting?.levelup_channel;
-    const announceChannel = announceChannelId ? msg.guild.channels.cache.get(announceChannelId) : msg.channel;
-    
-    announceChannel?.isTextBased() && announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
+  const announceChannelId = setting?.levelup_channel;
+  const announceChannel = announceChannelId ? msg.guild.channels.cache.get(announceChannelId) : msg.channel;
 
+  announceChannel?.isTextBased() && announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
 
-    const member = await msg.guild.members.fetch(uid);
-    const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
-    
-    for (const r of matchedRoles) {
-      const role = msg.guild.roles.cache.get(r.role_id);
-      if (role && !member.roles.cache.has(role.id)) {
-        await member.roles.add(role);
-        msg.channel.send(`🛡️ <@${uid}> received role **${role.name}**!`);
-      }
+  const member = await msg.guild.members.fetch(uid);
+  const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
+
+  for (const r of matchedRoles) {
+    const role = msg.guild.roles.cache.get(r.role_id);
+    if (role && !member.roles.cache.has(role.id)) {
+      await member.roles.add(role);
+      msg.channel.send(`🛡️ <@${uid}> received role **${role.name}**!`);
     }
   }
+}
+
 
       // Inside messageCreate
     await supa.rpc('increment_message_log', {
