@@ -101,6 +101,7 @@ bot.on('interactionCreate', async inter => {
 
   if (inter.commandName === 'help') {
     const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
+    const { data: streak_config } = await supa.from('streak_config').select().eq('guild_id', gid).single();
     const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
     const { data: decay } = await supa.from('decay_config').select().eq('guild_id', gid).single();
     const { data: levelRoles } = await supa.from('level_roles').select().eq('guild_id', gid);
@@ -129,7 +130,7 @@ bot.on('interactionCreate', async inter => {
       📊 XP per message: **${msgPoints}**  
       📺 Allowed XP channels: ${allowedList}  
       ${decayInfo}  
-      🔥 Streak requirement: ${setting?.required_message ?? 'Not set'} message(s) per day
+      🔥 Streak requirement: ${streak_config?.required_message ?? 'Not set'} message(s) per day
       
       🎖️ **Level Roles:**  
       ${roleList}
