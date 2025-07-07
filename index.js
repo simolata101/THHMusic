@@ -42,6 +42,12 @@ bot.on('ready', async () => {
       .addIntegerOption(opt => opt.setName('max').setDescription('Max level').setRequired(true))
       .addRoleOption(opt => opt.setName('role').setDescription('Role to assign').setRequired(true))
       .setDescription('Set auto role by level range (Admin)'),
+    new SlashCommandBuilder().setName('setstreakmessages')
+      .addIntegerOption(opt =>
+        opt.setName('amount')
+          .setDescription('Messages per day to maintain streak')
+          .setRequired(true))
+      .setDescription('Set required messages per day for streaks (Admin)'),
     new SlashCommandBuilder().setName('setlevelupchannel')
       .addChannelOption(opt =>
         opt.setName('channel')
@@ -81,6 +87,18 @@ bot.on('interactionCreate', async inter => {
     return inter.reply(`🌟 <@${target.id}>\nXP: ${targetData.xp}\nLevel: ${targetData.lvl}\nStreak: ${targetData.streak} days`);
   }
 
+  if (inter.commandName === 'setstreakmessages') {
+    if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+      return inter.reply('❌ Admin only.');
+    }
+  
+    const amount = inter.options.getInteger('amount');
+    await supa.from('streak_config').upsert({ guild_id: gid, required_message: amount });
+  
+    return inter.reply(`📈 Required daily messages for streak set to **${amount}**.`);
+  }
+
+
   if (inter.commandName === 'help') {
     const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
     const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
@@ -105,11 +123,13 @@ bot.on('interactionCreate', async inter => {
       **/setmessagepoints [amount]** – Set XP gain per message  
       **/allowchannel [#channel]** – Allow XP in channel  
       **/removechannel [#channel]** – Block XP in channel  
-      **/setlevelupchannel [#channel]** – Set level-up message channel
+      **/setlevelupchannel [#channel]** – Set level-up message channel  
+      **/setstreakmessages [amount]** – Set required daily messages for streak (Admin)
       
       📊 XP per message: **${msgPoints}**  
       📺 Allowed XP channels: ${allowedList}  
       ${decayInfo}  
+      🔥 Streak requirement: ${setting?.required_message ?? 'Not set'} message(s) per day
       
       🎖️ **Level Roles:**  
       ${roleList}
@@ -218,6 +238,8 @@ bot.on('messageCreate', async msg => {
     user = res.data;
   }
 
+  
+
   const newXp = user.xp + xpGain;
   const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
   const leveledUp = newLvl > user.lvl;
@@ -246,6 +268,14 @@ bot.on('messageCreate', async msg => {
           }
       }
   }
+
+      // Inside messageCreate
+    await supa.rpc('increment_message_log', {
+      user_id_input: uid,
+      guild_id_input: gid,
+      date_input: now
+    });
+
 });
 
 // XP Decay Job
@@ -265,5 +295,50 @@ cron.schedule('0 4 * * *', async () => {
     }
   }
 });
+
+// Streak Update Job – 5:00 AM
+cron.schedule('0 5 * * *', async () => {
+  const today = new Date();
+  const todayStr = today.toISOString().split('T')[0];
+  const yesterday = new Date(today.getTime() - 86400e3).toISOString().split('T')[0];
+
+  const { data: configs } = await supa.from('streak_config').select();
+  if (!configs) return;
+
+  for (const config of configs) {
+    const { guild_id, required_message } = config;
+
+    const { data: users } = await supa.from('users').select();
+    if (!users) continue;
+
+    for (const user of users) {
+      // Get yesterday's message count
+      const { data: msgLog } = await supa.from('message_log')
+        .select('count')
+        .eq('guild_id', guild_id)
+        .eq('user_id', user.user_id)
+        .eq('date', yesterday)
+        .single();
+
+      const messagesYesterday = msgLog?.count ?? 0;
+      let newStreak;
+
+      if (user.last_active === todayStr) {
+        newStreak = user.streak; // Already active today
+      } else if (messagesYesterday >= required_message) {
+        newStreak = user.streak + 1;
+      } else {
+        newStreak = 1;
+      }
+
+      await supa.from('users')
+        .update({ streak: newStreak })
+        .eq('user_id', user.user_id);
+    }
+  }
+
+  console.log('✅ Streaks updated at 5:00 AM based on message count');
+});
+
 
 bot.login(process.env.DISCORD_TOKEN);
