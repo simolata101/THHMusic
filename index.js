@@ -367,12 +367,20 @@ bot.on('messageCreate', async msg => {
         }
     }
 
-    // Inside messageCreate
-    await supa.rpc('increment_message_log', {
+    // Inside messageCreate - Log message activity into message_log
+    const { error } = await supa.rpc('increment_message_log', {
         user_id_input: uid,
         guild_id_input: gid,
         date_input: now
     });
+    
+    if (error) {
+        console.error('⚠️ Failed to increment message_log:', error);
+    } else {
+        // Optional: log success for debugging (you can remove later)
+        console.log(`✅ Message log updated for user ${uid} in guild ${gid} on ${now}`);
+    }
+
 
 });
 
