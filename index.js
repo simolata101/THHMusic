@@ -367,19 +367,26 @@ bot.on('messageCreate', async msg => {
         }
     }
 
-    // Inside messageCreate - Log message activity into message_log
-    const { error } = await supa.rpc('increment_message_log', {
-        user_id_input: uid,
-        guild_id_input: gid,
-        date_input: now
-    });
-    
-    if (error) {
-        console.error('⚠️ Failed to increment message_log:', error);
+    // direct query logic
+    const { data: existing } = await supa
+    .from('message_log')
+    .select('count')
+    .eq('user_id', uid)
+    .eq('guild_id', gid)
+    .eq('date', now)
+    .single();
+
+    if (existing) {
+        await supa.from('message_log')
+            .update({ count: existing.count + 1 })
+            .eq('user_id', uid)
+            .eq('guild_id', gid)
+            .eq('date', now);
     } else {
-        // Optional: log success for debugging (you can remove later)
-        console.log(`✅ Message log updated for user ${uid} in guild ${gid} on ${now}`);
+        await supa.from('message_log')
+            .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
     }
+
 
 
 });
