@@ -1,5 +1,6 @@
 // utils/createStatusCard.js
 import { createCanvas, loadImage } from 'canvas';
+registerFont('./assets/fonts/OpenSans-Regular.ttf', { family: 'OpenSans' });
 import path from 'path';
 
 export async function createStatusCard(user, avatarUrl) {
@@ -19,7 +20,7 @@ export async function createStatusCard(user, avatarUrl) {
 
     // Username
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 30px Sans-serif';
+    ctx.font = 'bold 30px OpenSans';
     ctx.fillText(user.username, 230, 70);
 
     // Level & XP Bar
