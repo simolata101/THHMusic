@@ -3,7 +3,8 @@ import {
     Client,
     GatewayIntentBits,
     SlashCommandBuilder,
-    PermissionsBitField
+    PermissionsBitField,
+    AttachmentBuilder 
 } from 'discord.js';
 import {
     createClient
@@ -11,6 +12,7 @@ import {
 import dotenv from 'dotenv';
 import fs from 'fs';
 import cron from 'node-cron';
+import { createStatusCard } from './utils/createStatusCard.js';
 dotenv.config();
 
 const settingsConfig = JSON.parse(fs.readFileSync('./config/settings.json', 'utf8'));
@@ -106,12 +108,24 @@ bot.on('interactionCreate', async inter => {
     }
 
     if (inter.commandName === 'showstatus') {
-        const target = inter.options.getUser('user') || inter.user;
-        const {
-            data: targetData
-        } = await supa.from('users').select().eq('user_id', target.id).single();
-        if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
-        return inter.reply(`🌟 <@${target.id}>\nXP: ${targetData.xp}\nLevel: ${targetData.lvl}\nStreak: ${targetData.streak} days`);
+    const target = inter.options.getUser('user') || inter.user;
+    const { data: targetData } = await supa.from('users').select().eq('user_id', target.id).single();
+
+    if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
+
+    const buffer = await createStatusCard({
+        username: target.username,
+        xp: targetData.xp,
+        lvl: targetData.lvl,
+        streak: targetData.streak
+    }, target.displayAvatarURL({ extension: 'png', size: 256 }));
+
+    const attachment = new AttachmentBuilder(buffer, { name: 'status.png' });
+
+    return inter.reply({
+        content: `🌟 Status for <@${target.id}>`,
+        files: [attachment]
+    });
     }
 
       if (inter.commandName === 'setvcpoints') {
