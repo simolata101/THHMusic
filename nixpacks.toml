@@ -1,8 +1,23 @@
 [phases.setup]
-nixPkgs = ["nodejs_20"]
+nixPkgs = [
+  "nodejs_20",
+  "libcairo", 
+  "libjpeg", 
+  "libpng", 
+  "pango", 
+  "giflib", 
+  "fontconfig", 
+  "freetype", 
+  "harfbuzz",
+  "nss", 
+  "pixman", 
+  "glib", 
+  "expat", 
+  "dejavu_fonts"
+]
 
 [phases.build]
 cmds = ["npm install"]
 
 [phases.start]
-cmd = "npm start"
+cmd = "node index.js"
