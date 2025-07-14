@@ -358,8 +358,10 @@ bot.on('messageCreate', async msg => {
     const {
         data: setting
     } = await supa.from('settings').select().eq('guild_id', gid).single();
-    const xpGain = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
-
+     const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
+    const xpGain = Math.floor((setting?.message_points ?? settingsConfig.default_message_points) * multiplier);
+    const isBooster = msg.member.premiumSince !== null;
+    
     let {
         data: user
     } = await supa.from('users').select().eq('user_id', uid).single();
@@ -430,14 +432,12 @@ bot.on('messageCreate', async msg => {
             .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
     }
 
-    const isBooster = msg.member.premiumSince !== null;
+
     if (isBooster) {
         await supa.from('users').update({ is_booster: true }).eq('user_id', uid);
     }
 
-    const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
 
-    const xpGain = Math.floor((setting?.message_points ?? settingsConfig.default_message_points) * multiplier);
 
 });
 
