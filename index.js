@@ -69,7 +69,10 @@ bot.on('ready', async () => {
             .setDescription('Channel for level-up and role messages')
             .setRequired(true)
         )
-        .setDescription('Set the channel for level-up and role notifications (Admin)')
+        .setDescription('Set the channel for level-up and role notifications (Admin)'),
+        new SlashCommandBuilder().setName('setboostermultiplier')
+        .addNumberOption(opt => opt.setName('amount').setDescription('XP multiplier for boosters').setRequired(true))
+        .setDescription('Set XP multiplier for server boosters (Admin)')
     ].map(c => c.toJSON());
 
     await bot.application.commands.set(cmds);
@@ -113,15 +116,21 @@ bot.on('interactionCreate', async inter => {
 
     if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
 
+    const member = await inter.guild.members.fetch(target.id).catch(() => null);
+    const isBooster = member?.premiumSince !== null;
+    const { data: guildSettings } = await supa.from('settings').select().eq('guild_id', inter.guildId).single();
+    const multiplier = isBooster ? (guildSettings?.booster_multiplier ?? 1.5) : 1;
+
     const buffer = await createStatusCard({
         username: target.username,
         xp: targetData.xp,
         lvl: targetData.lvl,
-        streak: targetData.streak
+        streak: targetData.streak,
+        isBooster: isBooster,
+        multiplier: multiplier
     }, target.displayAvatarURL({ extension: 'png', size: 256 }));
 
     const attachment = new AttachmentBuilder(buffer, { name: 'status.png' });
-
     return inter.reply({
         content: `🌟 Status for <@${target.id}>`,
         files: [attachment]
@@ -154,6 +163,24 @@ bot.on('interactionCreate', async inter => {
         return inter.reply(`📈 Required daily messages for streak set to **${amount}**.`);
     }
 
+    if (inter.commandName === 'setboostermultiplier') {
+        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return inter.reply('❌ Admin only.');
+        }
+        
+        const multiplier = inter.options.getNumber('amount');
+            if (multiplier < 1) {
+                return inter.reply('❌ Multiplier must be at least 1.0');
+            }
+        
+        await supa.from('settings').upsert({ 
+            guild_id: gid, 
+            booster_multiplier: multiplier 
+        });
+        
+        return inter.reply(`✨ Booster XP multiplier set to **${multiplier}x**`);
+    }
+
     if (inter.commandName === 'help') {
         const {
             data: setting
@@ -179,6 +206,7 @@ bot.on('interactionCreate', async inter => {
         const allowedList = allowed?.map(a => `<#${a.channel_id}>`).join(', ') || '*None*';
         const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
         const decayInfo = decay ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : '🕒 No decay configured.';
+        const boosterMultiplier = setting?.booster_multiplier ?? 1.5;
 
         return inter.reply({
             embeds: [{
@@ -201,7 +229,8 @@ bot.on('interactionCreate', async inter => {
       🔊 VC XP per minute: **${setting?.vc_points ?? 'Not set'}**
       🎖️ **Level Roles:**  
       ${roleList}
-      📢 Level-up messages: ${levelUpChannel}`,
+      📢 Level-up messages: ${levelUpChannel}
+      ✨ Booster XP multiplier: **${boosterMultiplier}x**\n`,
                 color: 0x7a5cfa
             }]
         });
@@ -401,7 +430,15 @@ bot.on('messageCreate', async msg => {
             .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
     }
 
+    const isBooster = msg.member.premiumSince !== null;
+    if (isBooster) {
+        await supa.from('users').update({ is_booster: true }).eq('user_id', uid);
+    }
 
+    const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
+    const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
+
+    const xpGain = Math.floor((setting?.message_points ?? settingsConfig.default_message_points) * multiplier);
 
 });
 
@@ -457,6 +494,16 @@ cron.schedule('0 5 * * *', async () => {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
     const yesterday = new Date(today.getTime() - 86400e3).toISOString().split('T')[0];
+
+     for (const user of users) {
+        // Check if user is still a booster
+        const guild = bot.guilds.cache.get(guild_id);
+        const member = await guild.members.fetch(user.user_id).catch(() => null);
+        const isBooster = member?.premiumSince !== null;
+        await supa.from('users').update({ is_booster: isBooster }).eq('user_id', user.user_id);
+        
+        // ... rest of streak logic ...
+    }
 
     const {
         data: configs
@@ -566,6 +613,18 @@ cron.schedule('* * * * *', async () => {
                 }
             }
         }
+
+        // Check if user is a booster
+        const guild = bot.guilds.cache.get(guild_id);
+        const member = await guild.members.fetch(uid).catch(() => null);
+        const isBooster = member?.premiumSince !== null;
+        if (isBooster) {
+            await supa.from('users').update({ is_booster: true }).eq('user_id', uid);
+        }
+
+        // Get multiplier from settings
+        const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
+        const xpGain = Math.floor((setting?.vc_points ?? 2) * multiplier);
     }
 });
 
