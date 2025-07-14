@@ -324,7 +324,7 @@ bot.on('messageCreate', async msg => {
     const {
         data: allowed
     } = await supa.from('allowed_channels').select().eq('guild_id', gid);
-    if (!allowed?.some(c => c.channel_id === cid)) return;
+    if (!allowed?.some(c => String(c.channel_id) === String(cid))) return;
 
     const {
         data: setting
