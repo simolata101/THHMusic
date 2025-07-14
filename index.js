@@ -349,7 +349,7 @@ bot.on('messageCreate', async msg => {
     const gid = msg.guild.id;
     const cid = msg.channel.id;
     const now = new Date().toISOString().split('T')[0];
-
+    const isBooster = msg.member.premiumSince !== null;
     const {
         data: allowed
     } = await supa.from('allowed_channels').select().eq('guild_id', gid);
@@ -360,7 +360,7 @@ bot.on('messageCreate', async msg => {
     } = await supa.from('settings').select().eq('guild_id', gid).single();
      const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
     const xpGain = Math.floor((setting?.message_points ?? settingsConfig.default_message_points) * multiplier);
-    const isBooster = msg.member.premiumSince !== null;
+
     
     let {
         data: user
@@ -566,11 +566,12 @@ cron.schedule('* * * * *', async () => {
             data: setting
         } = await supa.from('settings').select().eq('guild_id', guild_id).single();
         // Get multiplier from settings
+        const isBooster = member?.premiumSince !== null;
         const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
         const xpGain = Math.floor((setting?.vc_points ?? 2) * multiplier);
         const guild = bot.guilds.cache.get(guild_id);
         const member = await guild.members.fetch(uid).catch(() => null);
-        const isBooster = member?.premiumSince !== null;
+
 
         let {
             data: user
