@@ -435,7 +435,6 @@ bot.on('messageCreate', async msg => {
         await supa.from('users').update({ is_booster: true }).eq('user_id', uid);
     }
 
-    const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
     const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
 
     const xpGain = Math.floor((setting?.message_points ?? settingsConfig.default_message_points) * multiplier);
