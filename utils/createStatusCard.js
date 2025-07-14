@@ -16,32 +16,48 @@ export async function createStatusCard(user, avatarURL) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Avatar
+  const avatarSize = 128;
+  const avatarX = 30;
+  const avatarY = (canvas.height - avatarSize) / 2;
   const avatar = await loadImage(avatarURL);
-  ctx.drawImage(avatar, 30, 30, 128, 128);
+  ctx.drawImage(avatar, avatarX, avatarY, avatarSize, avatarSize);
 
-  // Border
+  // Avatar Border
   ctx.strokeStyle = '#7289da';
   ctx.lineWidth = 6;
-  ctx.strokeRect(30, 30, 128, 128);
+  ctx.strokeRect(avatarX, avatarY, avatarSize, avatarSize);
 
-  // Text
+  // Text Properties
+  const startX = avatarX + avatarSize + 30;
+  let currentY = 50;
+  const lineSpacing = 35;
+
   ctx.fillStyle = '#ffffff';
   ctx.font = '28px OpenSans';
-  ctx.fillText(`User: ${user.username}`, 180, 50);
-  ctx.fillText(`XP: ${user.xp}`, 180, 90);
-  ctx.fillText(`Level: ${user.lvl}`, 180, 130);
-  ctx.fillText(`Streak: ${user.streak} days`, 180, 170);
+  ctx.fillText(`User: ${user.username}`, startX, currentY);
+  currentY += lineSpacing;
+  ctx.fillText(`XP: ${user.xp}`, startX, currentY);
+  currentY += lineSpacing;
+  ctx.fillText(`Level: ${user.lvl}`, startX, currentY);
+  currentY += lineSpacing;
+  ctx.fillText(`Streak: ${user.streak} days`, startX, currentY);
 
+  // Booster Tag
   if (user.isBooster) {
-      // Position this wherever you want on the card
-      ctx.fillStyle = '#ff73fa';
-      ctx.font = 'bold 20px "Segoe UI"';
-      ctx.fillText(`✨ Server Booster (${user.multiplier}x XP)`, xPosition, yPosition);
+    currentY += lineSpacing;
+    ctx.fillStyle = '#ff73fa';
+    ctx.font = 'bold 20px "Segoe UI"';
+    ctx.fillText(`✨ Server Booster (${user.multiplier}x XP)`, startX, currentY);
   }
 
   // Progress Bar
-  const barX = 180, barY = 200, barWidth = 560, barHeight = 20;
-  const xpForNextLevel = (Math.pow(user.lvl, 2)) * 10;
+  const barMarginTop = 30;
+  const barX = startX;
+  const barY = currentY + barMarginTop;
+  const barWidth = 560;
+  const barHeight = 20;
+
+  const xpForNextLevel = Math.pow(user.lvl, 2) * 10;
   const percent = Math.min(user.xp / xpForNextLevel, 1);
 
   ctx.fillStyle = '#3e3f40';
