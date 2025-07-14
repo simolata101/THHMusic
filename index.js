@@ -344,101 +344,185 @@ bot.on('interactionCreate', async inter => {
 
 // Message XP Handler
 bot.on('messageCreate', async msg => {
-    if (msg.author.bot || !msg.guild) return;
-    const uid = msg.author.id;
-    const gid = msg.guild.id;
-    const cid = msg.channel.id;
-    const now = new Date().toISOString().split('T')[0];
-    const isBooster = msg.member.premiumSince !== null;
-    const {
-        data: allowed
-    } = await supa.from('allowed_channels').select().eq('guild_id', gid);
-    if (!allowed?.some(c => c.channel_id === cid)) return;
+    try {
+        // Basic checks
+        if (msg.author.bot || !msg.guild) return;
+        
+        const uid = msg.author.id;
+        const gid = msg.guild.id;
+        const cid = msg.channel.id;
+        const now = new Date().toISOString().split('T')[0];
+        
+        console.log(`Message from ${msg.author.tag} in ${msg.channel.name}`);
 
-    const {
-        data: setting
-    } = await supa.from('settings').select().eq('guild_id', gid).single();
-     const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
-    const xpGain = Math.floor((setting?.message_points ?? settingsConfig.default_message_points) * multiplier);
+        // Channel allowance check
+        const { data: allowed, error: allowedError } = await supa.from('allowed_channels')
+            .select()
+            .eq('guild_id', gid);
+        
+        if (allowedError) {
+            console.error('Error fetching allowed channels:', allowedError);
+            return;
+        }
 
-    
-    let {
-        data: user
-    } = await supa.from('users').select().eq('user_id', uid).single();
-    if (!user) {
-        const res = await supa.from('users').insert({
-            user_id: uid,
-            xp: 0,
-            lvl: 1,
-            coins: 0,
-            streak: 1,
+        console.log('Allowed channels:', allowed);
+        
+        if (!allowed?.some(c => c.channel_id === cid)) {
+            console.log(`Channel ${cid} not in allowed channels list`);
+            return;
+        }
+
+        // Get member with booster status
+        const member = msg.member || await msg.guild.members.fetch(uid).catch(() => null);
+        if (!member) {
+            console.log(`Could not fetch member ${uid}`);
+            return;
+        }
+        
+        const isBooster = member.premiumSince !== null;
+        console.log(`User ${msg.author.tag} is booster: ${isBooster}`);
+
+        // Get settings
+        const { data: setting, error: settingsError } = await supa.from('settings')
+            .select()
+            .eq('guild_id', gid)
+            .single();
+        
+        if (settingsError) {
+            console.error('Error fetching settings:', settingsError);
+        }
+
+        const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
+        const baseXp = setting?.message_points ?? settingsConfig.default_message_points;
+        const xpGain = Math.floor(baseXp * multiplier);
+        
+        console.log(`XP calculation: base=${baseXp}, multiplier=${multiplier}, final=${xpGain}`);
+
+        // Get or create user
+        let { data: user, error: userError } = await supa.from('users')
+            .select()
+            .eq('user_id', uid)
+            .single();
+        
+        if (userError) {
+            console.error('Error fetching user:', userError);
+        }
+
+        if (!user) {
+            console.log(`Creating new user record for ${uid}`);
+            const { data: newUser, error: insertError } = await supa.from('users').insert({
+                user_id: uid,
+                xp: 0,
+                lvl: 1,
+                coins: 0,
+                streak: 1,
+                last_active: now
+            }).select().single();
+            
+            if (insertError) {
+                console.error('Error creating user:', insertError);
+                return;
+            }
+            
+            user = newUser;
+        }
+
+        // Update XP
+        const newXp = user.xp + xpGain;
+        const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
+        const leveledUp = newLvl > user.lvl;
+        
+        console.log(`Updating XP: ${user.xp} -> ${newXp}, Level: ${user.lvl} -> ${newLvl}`);
+
+        const { error: updateError } = await supa.from('users').update({
+            xp: newXp,
+            lvl: newLvl,
             last_active: now
-        }).select().single();
-        user = res.data;
-    }
+        }).eq('user_id', uid);
+        
+        if (updateError) {
+            console.error('Error updating user:', updateError);
+            return;
+        }
 
-    const newXp = user.xp + xpGain;
-    const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
-    const leveledUp = newLvl > user.lvl;
+        // Handle level up
+        if (leveledUp) {
+            console.log(`User ${msg.author.tag} leveled up to ${newLvl}`);
+            
+            const { data: roles, error: rolesError } = await supa.from('level_roles')
+                .select()
+                .eq('guild_id', gid);
+            
+            if (rolesError) {
+                console.error('Error fetching roles:', rolesError);
+            }
 
-    await supa.from('users').update({
-        xp: newXp,
-        lvl: newLvl,
-        last_active: now
-    }).eq('user_id', uid);
+            const announceChannelId = setting?.levelup_channel;
+            const announceChannel = announceChannelId 
+                ? msg.guild.channels.cache.get(announceChannelId) 
+                : msg.channel;
 
-    if (leveledUp) {
-        const {
-            data: setting
-        } = await supa.from('settings').select().eq('guild_id', gid).single();
-        const {
-            data: roles
-        } = await supa.from('level_roles').select().eq('guild_id', gid);
+            if (announceChannel?.isTextBased()) {
+                await announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
+            }
 
-        const announceChannelId = setting?.levelup_channel;
-        const announceChannel = announceChannelId ? msg.guild.channels.cache.get(announceChannelId) : msg.channel;
-
-        announceChannel?.isTextBased() && announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
-
-        const member = await msg.guild.members.fetch(uid);
-        const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
-
-        for (const r of matchedRoles) {
-            const role = msg.guild.roles.cache.get(r.role_id);
-            if (role && !member.roles.cache.has(role.id)) {
-                await member.roles.add(role);
-                msg.channel.send(`🛡️ <@${uid}> received role **${role.name}**!`);
+            const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
+            
+            for (const r of matchedRoles) {
+                const role = msg.guild.roles.cache.get(r.role_id);
+                if (role && !member.roles.cache.has(role.id)) {
+                    await member.roles.add(role);
+                    console.log(`Assigned role ${role.name} to ${msg.author.tag}`);
+                    announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
+                }
             }
         }
-    }
 
-    // direct query logic
-    const { data: existing } = await supa
-    .from('message_log')
-    .select('count')
-    .eq('user_id', uid)
-    .eq('guild_id', gid)
-    .eq('date', now)
-    .single();
-
-    if (existing) {
-        await supa.from('message_log')
-            .update({ count: existing.count + 1 })
+        // Update message log
+        const { data: existing, error: logError } = await supa.from('message_log')
+            .select('count')
             .eq('user_id', uid)
             .eq('guild_id', gid)
-            .eq('date', now);
-    } else {
-        await supa.from('message_log')
-            .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
+            .eq('date', now)
+            .single();
+        
+        if (logError) {
+            console.error('Error checking message log:', logError);
+        }
+
+        if (existing) {
+            const { error: updateLogError } = await supa.from('message_log')
+                .update({ count: existing.count + 1 })
+                .eq('user_id', uid)
+                .eq('guild_id', gid)
+                .eq('date', now);
+            
+            if (updateLogError) {
+                console.error('Error updating message log:', updateLogError);
+            }
+        } else {
+            const { error: insertLogError } = await supa.from('message_log')
+                .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
+            
+            if (insertLogError) {
+                console.error('Error creating message log:', insertLogError);
+            }
+        }
+
+        // Update booster status
+        if (isBooster) {
+            const { error: boosterError } = await supa.from('users')
+                .update({ is_booster: true })
+                .eq('user_id', uid);
+            
+            if (boosterError) {
+                console.error('Error updating booster status:', boosterError);
+            }
+        }
+
+    } catch (error) {
+        console.error('Unhandled error in messageCreate:', error);
     }
-
-
-    if (isBooster) {
-        await supa.from('users').update({ is_booster: true }).eq('user_id', uid);
-    }
-
-
-
 });
 
 
