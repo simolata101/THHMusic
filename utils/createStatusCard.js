@@ -32,6 +32,13 @@ export async function createStatusCard(user, avatarURL) {
   ctx.fillText(`Level: ${user.lvl}`, 180, 130);
   ctx.fillText(`Streak: ${user.streak} days`, 180, 170);
 
+  if (data.isBooster) {
+      // Position this wherever you want on the card
+      ctx.fillStyle = '#ff73fa';
+      ctx.font = 'bold 20px "Segoe UI"';
+      ctx.fillText(`✨ Server Booster (${data.multiplier}x XP)`, xPosition, yPosition);
+  }
+
   // Progress Bar
   const barX = 180, barY = 200, barWidth = 560, barHeight = 20;
   const xpForNextLevel = (Math.pow(user.lvl, 2)) * 10;
