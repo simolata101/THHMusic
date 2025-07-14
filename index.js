@@ -69,10 +69,7 @@ bot.on('ready', async () => {
             .setDescription('Channel for level-up and role messages')
             .setRequired(true)
         )
-        .setDescription('Set the channel for level-up and role notifications (Admin)'),
-        new SlashCommandBuilder().setName('setboostermultiplier')
-        .addNumberOption(opt => opt.setName('amount').setDescription('XP multiplier for boosters').setRequired(true))
-        .setDescription('Set XP multiplier for server boosters (Admin)')
+        .setDescription('Set the channel for level-up and role notifications (Admin)')
     ].map(c => c.toJSON());
 
     await bot.application.commands.set(cmds);
@@ -116,21 +113,15 @@ bot.on('interactionCreate', async inter => {
 
     if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
 
-    const member = await inter.guild.members.fetch(target.id).catch(() => null);
-    const isBooster = member?.premiumSince !== null;
-    const { data: guildSettings } = await supa.from('settings').select().eq('guild_id', inter.guildId).single();
-    const multiplier = isBooster ? (guildSettings?.booster_multiplier ?? 1.5) : 1;
-
     const buffer = await createStatusCard({
         username: target.username,
         xp: targetData.xp,
         lvl: targetData.lvl,
-        streak: targetData.streak,
-        isBooster: isBooster,
-        multiplier: multiplier
+        streak: targetData.streak
     }, target.displayAvatarURL({ extension: 'png', size: 256 }));
 
     const attachment = new AttachmentBuilder(buffer, { name: 'status.png' });
+
     return inter.reply({
         content: `🌟 Status for <@${target.id}>`,
         files: [attachment]
@@ -163,24 +154,6 @@ bot.on('interactionCreate', async inter => {
         return inter.reply(`📈 Required daily messages for streak set to **${amount}**.`);
     }
 
-    if (inter.commandName === 'setboostermultiplier') {
-        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return inter.reply('❌ Admin only.');
-        }
-        
-        const multiplier = inter.options.getNumber('amount');
-            if (multiplier < 1) {
-                return inter.reply('❌ Multiplier must be at least 1.0');
-            }
-        
-        await supa.from('settings').upsert({ 
-            guild_id: gid, 
-            booster_multiplier: multiplier 
-        });
-        
-        return inter.reply(`✨ Booster XP multiplier set to **${multiplier}x**`);
-    }
-
     if (inter.commandName === 'help') {
         const {
             data: setting
@@ -206,7 +179,6 @@ bot.on('interactionCreate', async inter => {
         const allowedList = allowed?.map(a => `<#${a.channel_id}>`).join(', ') || '*None*';
         const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
         const decayInfo = decay ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : '🕒 No decay configured.';
-        const boosterMultiplier = setting?.booster_multiplier ?? 1.5;
 
         return inter.reply({
             embeds: [{
@@ -229,8 +201,7 @@ bot.on('interactionCreate', async inter => {
       🔊 VC XP per minute: **${setting?.vc_points ?? 'Not set'}**
       🎖️ **Level Roles:**  
       ${roleList}
-      📢 Level-up messages: ${levelUpChannel}
-      ✨ Booster XP multiplier: **${boosterMultiplier}x**\n`,
+      📢 Level-up messages: ${levelUpChannel}`,
                 color: 0x7a5cfa
             }]
         });
@@ -344,185 +315,94 @@ bot.on('interactionCreate', async inter => {
 
 // Message XP Handler
 bot.on('messageCreate', async msg => {
-    try {
-        // Basic checks
-        if (msg.author.bot || !msg.guild) return;
-        
-        const uid = msg.author.id;
-        const gid = msg.guild.id;
-        const cid = msg.channel.id;
-        const now = new Date().toISOString().split('T')[0];
-        
-        console.log(`Message from ${msg.author.tag} in ${msg.channel.name}`);
+    if (msg.author.bot || !msg.guild) return;
+    const uid = msg.author.id;
+    const gid = msg.guild.id;
+    const cid = msg.channel.id;
+    const now = new Date().toISOString().split('T')[0];
 
-        // Channel allowance check
-        const { data: allowed, error: allowedError } = await supa.from('allowed_channels')
-            .select()
-            .eq('guild_id', gid);
-        
-        if (allowedError) {
-            console.error('Error fetching allowed channels:', allowedError);
-            return;
-        }
+    const {
+        data: allowed
+    } = await supa.from('allowed_channels').select().eq('guild_id', gid);
+    if (!allowed?.some(c => c.channel_id === cid)) return;
 
-        console.log('Allowed channels:', allowed);
-        
-        if (!allowed?.some(c => c.channel_id === cid)) {
-            console.log(`Channel ${cid} not in allowed channels list`);
-            return;
-        }
+    const {
+        data: setting
+    } = await supa.from('settings').select().eq('guild_id', gid).single();
+    const xpGain = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
 
-        // Get member with booster status
-        const member = msg.member || await msg.guild.members.fetch(uid).catch(() => null);
-        if (!member) {
-            console.log(`Could not fetch member ${uid}`);
-            return;
-        }
-        
-        const isBooster = member.premiumSince !== null;
-        console.log(`User ${msg.author.tag} is booster: ${isBooster}`);
-
-        // Get settings
-        const { data: setting, error: settingsError } = await supa.from('settings')
-            .select()
-            .eq('guild_id', gid)
-            .single();
-        
-        if (settingsError) {
-            console.error('Error fetching settings:', settingsError);
-        }
-
-        const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
-        const baseXp = setting?.message_points ?? settingsConfig.default_message_points;
-        const xpGain = Math.floor(baseXp * multiplier);
-        
-        console.log(`XP calculation: base=${baseXp}, multiplier=${multiplier}, final=${xpGain}`);
-
-        // Get or create user
-        let { data: user, error: userError } = await supa.from('users')
-            .select()
-            .eq('user_id', uid)
-            .single();
-        
-        if (userError) {
-            console.error('Error fetching user:', userError);
-        }
-
-        if (!user) {
-            console.log(`Creating new user record for ${uid}`);
-            const { data: newUser, error: insertError } = await supa.from('users').insert({
-                user_id: uid,
-                xp: 0,
-                lvl: 1,
-                coins: 0,
-                streak: 1,
-                last_active: now
-            }).select().single();
-            
-            if (insertError) {
-                console.error('Error creating user:', insertError);
-                return;
-            }
-            
-            user = newUser;
-        }
-
-        // Update XP
-        const newXp = user.xp + xpGain;
-        const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
-        const leveledUp = newLvl > user.lvl;
-        
-        console.log(`Updating XP: ${user.xp} -> ${newXp}, Level: ${user.lvl} -> ${newLvl}`);
-
-        const { error: updateError } = await supa.from('users').update({
-            xp: newXp,
-            lvl: newLvl,
+    let {
+        data: user
+    } = await supa.from('users').select().eq('user_id', uid).single();
+    if (!user) {
+        const res = await supa.from('users').insert({
+            user_id: uid,
+            xp: 0,
+            lvl: 1,
+            coins: 0,
+            streak: 1,
             last_active: now
-        }).eq('user_id', uid);
-        
-        if (updateError) {
-            console.error('Error updating user:', updateError);
-            return;
-        }
+        }).select().single();
+        user = res.data;
+    }
 
-        // Handle level up
-        if (leveledUp) {
-            console.log(`User ${msg.author.tag} leveled up to ${newLvl}`);
-            
-            const { data: roles, error: rolesError } = await supa.from('level_roles')
-                .select()
-                .eq('guild_id', gid);
-            
-            if (rolesError) {
-                console.error('Error fetching roles:', rolesError);
-            }
+    const newXp = user.xp + xpGain;
+    const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
+    const leveledUp = newLvl > user.lvl;
 
-            const announceChannelId = setting?.levelup_channel;
-            const announceChannel = announceChannelId 
-                ? msg.guild.channels.cache.get(announceChannelId) 
-                : msg.channel;
+    await supa.from('users').update({
+        xp: newXp,
+        lvl: newLvl,
+        last_active: now
+    }).eq('user_id', uid);
 
-            if (announceChannel?.isTextBased()) {
-                await announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
-            }
+    if (leveledUp) {
+        const {
+            data: setting
+        } = await supa.from('settings').select().eq('guild_id', gid).single();
+        const {
+            data: roles
+        } = await supa.from('level_roles').select().eq('guild_id', gid);
 
-            const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
-            
-            for (const r of matchedRoles) {
-                const role = msg.guild.roles.cache.get(r.role_id);
-                if (role && !member.roles.cache.has(role.id)) {
-                    await member.roles.add(role);
-                    console.log(`Assigned role ${role.name} to ${msg.author.tag}`);
-                    announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
-                }
+        const announceChannelId = setting?.levelup_channel;
+        const announceChannel = announceChannelId ? msg.guild.channels.cache.get(announceChannelId) : msg.channel;
+
+        announceChannel?.isTextBased() && announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
+
+        const member = await msg.guild.members.fetch(uid);
+        const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
+
+        for (const r of matchedRoles) {
+            const role = msg.guild.roles.cache.get(r.role_id);
+            if (role && !member.roles.cache.has(role.id)) {
+                await member.roles.add(role);
+                msg.channel.send(`🛡️ <@${uid}> received role **${role.name}**!`);
             }
         }
+    }
 
-        // Update message log
-        const { data: existing, error: logError } = await supa.from('message_log')
-            .select('count')
+    // direct query logic
+    const { data: existing } = await supa
+    .from('message_log')
+    .select('count')
+    .eq('user_id', uid)
+    .eq('guild_id', gid)
+    .eq('date', now)
+    .single();
+
+    if (existing) {
+        await supa.from('message_log')
+            .update({ count: existing.count + 1 })
             .eq('user_id', uid)
             .eq('guild_id', gid)
-            .eq('date', now)
-            .single();
-        
-        if (logError) {
-            console.error('Error checking message log:', logError);
-        }
-
-        if (existing) {
-            const { error: updateLogError } = await supa.from('message_log')
-                .update({ count: existing.count + 1 })
-                .eq('user_id', uid)
-                .eq('guild_id', gid)
-                .eq('date', now);
-            
-            if (updateLogError) {
-                console.error('Error updating message log:', updateLogError);
-            }
-        } else {
-            const { error: insertLogError } = await supa.from('message_log')
-                .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
-            
-            if (insertLogError) {
-                console.error('Error creating message log:', insertLogError);
-            }
-        }
-
-        // Update booster status
-        if (isBooster) {
-            const { error: boosterError } = await supa.from('users')
-                .update({ is_booster: true })
-                .eq('user_id', uid);
-            
-            if (boosterError) {
-                console.error('Error updating booster status:', boosterError);
-            }
-        }
-
-    } catch (error) {
-        console.error('Unhandled error in messageCreate:', error);
+            .eq('date', now);
+    } else {
+        await supa.from('message_log')
+            .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
     }
+
+
+
 });
 
 
@@ -578,16 +458,6 @@ cron.schedule('0 5 * * *', async () => {
     const todayStr = today.toISOString().split('T')[0];
     const yesterday = new Date(today.getTime() - 86400e3).toISOString().split('T')[0];
 
-     for (const user of users) {
-        // Check if user is still a booster
-        const guild = bot.guilds.cache.get(guild_id);
-        const member = await guild.members.fetch(user.user_id).catch(() => null);
-        const isBooster = member?.premiumSince !== null;
-        await supa.from('users').update({ is_booster: isBooster }).eq('user_id', user.user_id);
-        
-        // ... rest of streak logic ...
-    }
-
     const {
         data: configs
     } = await supa.from('streak_config').select();
@@ -641,99 +511,60 @@ cron.schedule('* * * * *', async () => {
     const now = new Date().toISOString().split('T')[0];
 
     for (const [uid, session] of activeVoiceUsers.entries()) {
-        try {
-            const { guild_id, channel_id } = session;
+        const {
+            guild_id,
+            channel_id
+        } = session;
 
-            // 1. Get guild and member first
-            const guild = bot.guilds.cache.get(guild_id);
-            if (!guild) {
-                console.log(`Guild ${guild_id} not found. Skipping user ${uid}.`);
-                continue;
-            }
+        const {
+            data: setting
+        } = await supa.from('settings').select().eq('guild_id', guild_id).single();
+        const xpGain = setting?.vc_points ?? parseInt(process.env.DEFAULT_VC_POINTS) ?? 2;
 
-            const member = await guild.members.fetch(uid).catch(() => null);
-            if (!member) {
-                console.log(`Member ${uid} not found in guild ${guild_id}. Skipping.`);
-                continue;
-            }
-
-            // 2. Now check booster status
-            const isBooster = member.premiumSince !== null;
-
-            // 3. Get XP settings
-            const { data: setting } = await supa.from('settings')
-                .select()
-                .eq('guild_id', guild_id)
-                .single();
-
-            const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
-            const xpGain = Math.floor((setting?.vc_points ?? 2) * multiplier);
-
-            // 4. Update user XP
-            let { data: user } = await supa.from('users')
-                .select()
-                .eq('user_id', uid)
-                .single();
-
-            if (!user) {
-                const res = await supa.from('users').insert({
-                    user_id: uid,
-                    xp: 0,
-                    lvl: 1,
-                    coins: 0,
-                    streak: 1,
-                    last_active: now
-                }).select().single();
-                user = res.data;
-            }
-
-            const newXp = user.xp + xpGain;
-            const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
-            const leveledUp = newLvl > user.lvl;
-
-            await supa.from('users').update({
-                xp: newXp,
-                lvl: newLvl,
+        let {
+            data: user
+        } = await supa.from('users').select().eq('user_id', uid).single();
+        if (!user) {
+            const res = await supa.from('users').insert({
+                user_id: uid,
+                xp: 0,
+                lvl: 1,
+                coins: 0,
+                streak: 1,
                 last_active: now
-            }).eq('user_id', uid);
+            }).select().single();
+            user = res.data;
+        }
 
-            // 5. Handle level-up (roles, announcements)
-            if (leveledUp) {
-                const { data: roles } = await supa.from('level_roles')
-                    .select()
-                    .eq('guild_id', guild_id);
+        const newXp = user.xp + xpGain;
+        const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
+        const leveledUp = newLvl > user.lvl;
 
-                const announceChannelId = setting?.levelup_channel;
-                const announceChannel = announceChannelId 
-                    ? guild.channels.cache.get(announceChannelId) 
-                    : null;
+        await supa.from('users').update({
+            xp: newXp,
+            lvl: newLvl,
+            last_active: now
+        }).eq('user_id', uid);
 
-                if (announceChannel?.isTextBased()) {
-                    await announceChannel.send(`🔊 <@${uid}> leveled up to **${newLvl}** from voice chat!`);
-                }
+        if (leveledUp) {
+            const {
+                data: roles
+            } = await supa.from('level_roles').select().eq('guild_id', guild_id);
+            const announceChannelId = setting?.levelup_channel;
+            const guild = bot.guilds.cache.get(guild_id);
+            const announceChannel = announceChannelId ? guild.channels.cache.get(announceChannelId) : null;
+            announceChannel?.isTextBased() && announceChannel.send(`🔊 <@${uid}> leveled up to **${newLvl}** from voice chat!`);
 
-                const matchedRoles = roles?.filter(r => 
-                    newLvl >= r.min_level && newLvl <= r.max_level
-                ) || [];
+            const member = await guild.members.fetch(uid);
+            const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
 
-                for (const r of matchedRoles) {
-                    const role = guild.roles.cache.get(r.role_id);
-                    if (role && !member.roles.cache.has(role.id)) {
-                        await member.roles.add(role);
-                        announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
-                    }
+            for (const r of matchedRoles) {
+                const role = guild.roles.cache.get(r.role_id);
+                if (role && !member.roles.cache.has(role.id)) {
+                    await member.roles.add(role);
+                    announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
                 }
             }
-
-            // 6. Update booster status (if needed)
-            if (isBooster) {
-                await supa.from('users')
-                    .update({ is_booster: true })
-                    .eq('user_id', uid);
-            }
-
-        } catch (error) {
-            console.error(`Error processing voice XP for user ${uid}:`, error);
         }
     }
 });
