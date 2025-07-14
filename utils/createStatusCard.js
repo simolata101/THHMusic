@@ -1,59 +1,54 @@
-// utils/createStatusCard.js
 import { createCanvas, loadImage, registerFont } from 'canvas';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import fs from 'fs';
 
-// Fix font paths
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-registerFont(path.join(__dirname, '../fonts/arial.ttf'), { family: 'Arial' });
+const fontPath = path.join(process.cwd(), 'assets/fonts/OpenSans-Regular.ttf');
+if (fs.existsSync(fontPath)) {
+  registerFont(fontPath, { family: 'OpenSans' });
+}
 
-export async function createStatusCard(userData, avatarURL) {
-    try {
-        // Create canvas
-        const canvas = createCanvas(800, 300);
-        const ctx = canvas.getContext('2d');
+export async function createStatusCard(user, avatarURL) {
+  const canvas = createCanvas(800, 250);
+  const ctx = canvas.getContext('2d');
 
-        // Background
-        ctx.fillStyle = '#2C2F33';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Background
+  ctx.fillStyle = '#2c2f33';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Avatar
-        try {
-            const avatar = await loadImage(avatarURL);
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(150, 150, 100, 0, Math.PI * 2, true);
-            ctx.closePath();
-            ctx.clip();
-            ctx.drawImage(avatar, 50, 50, 200, 200);
-            ctx.restore();
-        } catch (error) {
-            console.error('Error loading avatar:', error);
-        }
+  // Avatar
+  const avatar = await loadImage(avatarURL);
+  ctx.drawImage(avatar, 30, 30, 128, 128);
 
-        // User info
-        ctx.fillStyle = '#FFFFFF';
-        ctx.font = '30px Arial';
-        ctx.fillText(userData.username, 300, 80);
+  // Border
+  ctx.strokeStyle = '#7289da';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(30, 30, 128, 128);
 
-        // Level and XP
-        ctx.font = '24px Arial';
-        ctx.fillText(`Level: ${userData.lvl}`, 300, 120);
-        ctx.fillText(`XP: ${userData.xp}`, 300, 150);
+  // Text
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '28px OpenSans';
+  ctx.fillText(`User: ${user.username}`, 180, 50);
+  ctx.fillText(`XP: ${user.xp}`, 180, 90);
+  ctx.fillText(`Level: ${user.lvl}`, 180, 130);
+  ctx.fillText(`Streak: ${user.streak} days`, 180, 170);
 
-        // Streak
-        ctx.fillText(`Streak: ${userData.streak} days`, 300, 180);
+  if (user.isBooster) {
+      // Position this wherever you want on the card
+      ctx.fillStyle = '#ff73fa';
+      ctx.font = 'bold 20px "Segoe UI"';
+      ctx.fillText(`✨ Server Booster (${user.multiplier}x XP)`, xPosition, yPosition);
+  }
 
-        // Booster status
-        if (userData.isBooster) {
-            ctx.fillStyle = '#FF73FA';
-            ctx.font = 'bold 20px Arial';
-            ctx.fillText(`✨ Server Booster (${userData.multiplier}x XP)`, 300, 220);
-        }
+  // Progress Bar
+  const barX = 180, barY = 200, barWidth = 560, barHeight = 20;
+  const xpForNextLevel = (Math.pow(user.lvl, 2)) * 10;
+  const percent = Math.min(user.xp / xpForNextLevel, 1);
 
-        return canvas.toBuffer('image/png');
-    } catch (error) {
-        console.error('Error creating status card:', error);
-        throw error;
-    }
+  ctx.fillStyle = '#3e3f40';
+  ctx.fillRect(barX, barY, barWidth, barHeight);
+
+  ctx.fillStyle = '#43b581';
+  ctx.fillRect(barX, barY, barWidth * percent, barHeight);
+
+  return canvas.toBuffer('image/png');
 }
