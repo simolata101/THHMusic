@@ -565,7 +565,12 @@ cron.schedule('* * * * *', async () => {
         const {
             data: setting
         } = await supa.from('settings').select().eq('guild_id', guild_id).single();
-        const xpGain = setting?.vc_points ?? parseInt(process.env.DEFAULT_VC_POINTS) ?? 2;
+        // Get multiplier from settings
+        const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
+        const xpGain = Math.floor((setting?.vc_points ?? 2) * multiplier);
+        const guild = bot.guilds.cache.get(guild_id);
+        const member = await guild.members.fetch(uid).catch(() => null);
+        const isBooster = member?.premiumSince !== null;
 
         let {
             data: user
@@ -614,16 +619,12 @@ cron.schedule('* * * * *', async () => {
         }
 
         // Check if user is a booster
-        const guild = bot.guilds.cache.get(guild_id);
-        const member = await guild.members.fetch(uid).catch(() => null);
-        const isBooster = member?.premiumSince !== null;
+
         if (isBooster) {
             await supa.from('users').update({ is_booster: true }).eq('user_id', uid);
         }
 
-        // Get multiplier from settings
-        const multiplier = isBooster ? (setting?.booster_multiplier ?? 1.5) : 1;
-        const xpGain = Math.floor((setting?.vc_points ?? 2) * multiplier);
+
     }
 });
 
