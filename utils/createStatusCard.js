@@ -31,7 +31,7 @@ export async function createStatusCard(user, avatarURL) {
   ctx.fillText(`XP: ${user.xp}`, 180, 90);
   ctx.fillText(`Level: ${user.lvl}`, 180, 130);
   ctx.fillText(`Streak: ${user.streak} days`, 180, 170);
-  ctx.fillText(`Streak: ${user.countMsg}/${user.reqMsg}`, 180, 210);
+  ctx.fillText(`Msg Count (Streak): ${user.countMsg}/${user.reqMsg}`, 180, 210);
 
   // Progress Bar
   const barX = 180, barY = 230, barWidth = 560, barHeight = 20;
