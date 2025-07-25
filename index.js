@@ -110,6 +110,8 @@ bot.on('interactionCreate', async inter => {
     if (inter.commandName === 'showstatus') {
     const target = inter.options.getUser('user') || inter.user;
     const { data: targetData } = await supa.from('users').select().eq('user_id', target.id).single();
+    const { data: streakCfg } = await supa.from('streak_config').select().eq('guild_id', gid).single();
+	const { data: msgCount } = await supa.from('message_log').select('count').eq('user_id', uid).eq('guild_id', gid).eq('date', now).single();
 
     if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
 
@@ -117,8 +119,10 @@ bot.on('interactionCreate', async inter => {
         username: target.username,
         xp: targetData.xp,
         lvl: targetData.lvl,
-        streak: targetData.streak
-    }, target.displayAvatarURL({ extension: 'png', size: 256 }));
+        streak: targetData.streak,
+		countMsg: msgCount.count,
+        reqMsg: streakCfg.required_message
+    }, target.displayAvatarURL({ extension: 'png', size: 276 }));
 
     const attachment = new AttachmentBuilder(buffer, { name: 'status.png' });
 

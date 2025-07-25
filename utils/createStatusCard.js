@@ -31,9 +31,10 @@ export async function createStatusCard(user, avatarURL) {
   ctx.fillText(`XP: ${user.xp}`, 180, 90);
   ctx.fillText(`Level: ${user.lvl}`, 180, 130);
   ctx.fillText(`Streak: ${user.streak} days`, 180, 170);
+  ctx.fillText(`Streak: ${user.countMsg}/${user.reqMsg}`, 180, 210);
 
   // Progress Bar
-  const barX = 180, barY = 200, barWidth = 560, barHeight = 20;
+  const barX = 180, barY = 230, barWidth = 560, barHeight = 20;
   const xpForNextLevel = (Math.pow(user.lvl, 2)) * 10;
   const percent = Math.min(user.xp / xpForNextLevel, 1);
 
