@@ -26,7 +26,7 @@ export async function createStatusCard(user, avatarURL) {
 
   // Text
   ctx.fillStyle = '#ffffff';
-  ctx.font = '28px OpenSans';
+  ctx.font = '25px OpenSans';
   ctx.fillText(`User: ${user.username}`, 180, 50);
   ctx.fillText(`XP: ${user.xp}`, 180, 90);
   ctx.fillText(`Level: ${user.lvl}`, 180, 130);
