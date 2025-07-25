@@ -122,7 +122,7 @@ bot.on('interactionCreate', async inter => {
         streak: targetData.streak,
 		countMsg: msgCount.count,
         reqMsg: streakCfg.required_message
-    }, target.displayAvatarURL({ extension: 'png', size: 276 }));
+    }, target.displayAvatarURL({ extension: 'png', size: 256 }));
 
     const attachment = new AttachmentBuilder(buffer, { name: 'status.png' });
 
