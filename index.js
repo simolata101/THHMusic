@@ -77,7 +77,7 @@ bot.on('ready', async () => {
 	    opt.setName('role')
 	      .setDescription('Role to give when requirement is met')
 	      .setRequired(true)
-	  )
+	  ),
         new SlashCommandBuilder().setName('setlevelupchannel')
         .addChannelOption(opt =>
             opt.setName('channel')
