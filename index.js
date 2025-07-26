@@ -199,10 +199,10 @@ bot.on('interactionCreate', async inter => {
         const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
         const decayInfo = decay ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : '🕒 No decay configured.';
 
-	const vcBoostRole = inter.guild.roles.cache.get(settings.vc_role_id);
+	const vcBoostRole = inter.guild.roles.cache.get(setting.vc_role_id);
 
 	const status = vcBoostRole
-	  ? `• Role: ${vcBoostRole.name}\n• Minimum VC Members: ${settings.vc_personqty}`
+	  ? `• Role: ${vcBoostRole.name}\n• Minimum VC Members: ${setting.vc_personqty}`
 	  : '*VC role not found*';
 
         return inter.reply({
@@ -481,15 +481,15 @@ bot.on('voiceStateUpdate', async (oldState, newState) => {
   roleCooldown.set(affectedChannelId, now);
 
   // 🧠 Fetch Supabase VC Settings
-  const { data: settings, error } = await supa
+  const { data: setting, error } = await supa
     .from('settings')
     .select('vc_personqty, vc_role_id')
     .eq('guild_id', guild_id)
     .single();
 
-  if (error || !settings) return;
+  if (error || !setting) return;
 
-  const { vc_personqty, vc_role_id } = settings;
+  const { vc_personqty, vc_role_id } = setting;
   const role = await guild.roles.fetch(vc_role_id).catch(() => null);
   if (!role) return;
 
