@@ -18,6 +18,9 @@ dotenv.config();
 const settingsConfig = JSON.parse(fs.readFileSync('./config/settings.json', 'utf8'));
 const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const activeVoiceUsers = new Map(); // user_id => { guild_id, channel_id }
+const roleCooldown = new Map(); // Map<channelId, timestamp>
+const COOLDOWN_MS = 5_000; // 5 seconds cooldown per VC channel
+
 
 const bot = new Client({
     intents: [
@@ -63,6 +66,18 @@ bot.on('ready', async () => {
             .setDescription('Messages per day to maintain streak')
             .setRequired(true))
         .setDescription('Set required messages per day for streaks (Admin)'),
+	new SlashCommandBuilder().setName('setminimumpervc')
+	  .setDescription('Set the minimum VC members and role to assign (Admin)')
+	  .addIntegerOption(opt =>
+	    opt.setName('min')
+	      .setDescription('Minimum number of VC members required')
+	      .setRequired(true)
+	  )
+	  .addRoleOption(opt =>
+	    opt.setName('role')
+	      .setDescription('Role to give when requirement is met')
+	      .setRequired(true)
+	  )
         new SlashCommandBuilder().setName('setlevelupchannel')
         .addChannelOption(opt =>
             opt.setName('channel')
@@ -184,6 +199,12 @@ bot.on('interactionCreate', async inter => {
         const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
         const decayInfo = decay ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : '🕒 No decay configured.';
 
+	const vcBoostRole = interaction.guild.roles.cache.get(settings.vc_role_id);
+
+	const status = vcBoostRole
+	  ? `• Role: ${vcBoostRole.name}\n• Minimum VC Members: ${settings.vc_personqty}`
+	  : '*VC role not found*';
+
         return inter.reply({
             embeds: [{
                 title: '📘 Help Menu',
@@ -197,12 +218,14 @@ bot.on('interactionCreate', async inter => {
       **/setlevelupchannel [#channel]** – Set level-up message channel
       **/setstreakmessages [amount]** – Set required daily messages for streak (Admin)
       **/setvcpoints [amount]** – Set XP per minute in voice chat
+      **/setminimumpervc [min] [role] - Set minimum requirement per vc and the role assignment
       
       📊 XP per message: **${msgPoints}**  
       📺 Allowed XP channels: ${allowedList}  
       ${decayInfo}  
       🔥 Streak requirement: ${streak_config?.required_message ?? 'Not set'} message(s) per day
       🔊 VC XP per minute: **${setting?.vc_points ?? 'Not set'}**
+      🔊 ${status}
       🎖️ **Level Roles:**  
       ${roleList}
       📢 Level-up messages: ${levelUpChannel}`,
@@ -291,11 +314,39 @@ bot.on('interactionCreate', async inter => {
         } = await supa.from('level_roles').select().eq('guild_id', gid).eq('role_id', role.id).single();
 
         if (!existing) {
-            return inter.reply('❌ That role is not assigned through level roles.');
+            return inter.reply('❌ That role is not aassigned through level roles.');
         }
 
         await supa.from('level_roles').delete().eq('guild_id', gid).eq('role_id', role.id);
         return inter.reply(`🗑️ Removed **${role.name}** from level role assignments.`);
+    }
+
+    if (inter.commandName === 'setminimumpervc') {
+	  const min = inter.options.getInteger('min');
+	  const role = inter.options.getRole('role');
+	  const guildId = inter.guild.id;
+	
+	  const { error } = await supa
+	    .from('settings')
+	    .upsert({
+	      guild_id: guildId,
+	      vc_personqty: min,
+	      vc_role_id: role.id,
+	      updated_at: new Date().toISOString()
+	    }, { onConflict: 'guild_id' });
+	
+	  if (error) {
+	    console.error('❌ Supabase error:', error.message);
+	    return inter.reply({
+	      content: '❌ Failed to save VC settings. Please try again later.',
+	      ephemeral: true
+	    });
+	  }
+	
+	  await interaction.reply({
+	    content: `✅ VC requirement settings updated:\n• Minimum members: **${min}**\n• Role to assign: **${role.name}**`,
+	    ephemeral: true
+	  });
     }
 
     if (inter.commandName === 'leaderboard') {
@@ -320,24 +371,27 @@ bot.on('interactionCreate', async inter => {
 // Message XP Handler
 bot.on('messageCreate', async msg => {
     if (msg.author.bot || !msg.guild) return;
+
     const uid = msg.author.id;
     const gid = msg.guild.id;
     const cid = msg.channel.id;
     const now = new Date().toISOString().split('T')[0];
 
-    const {
-        data: allowed
-    } = await supa.from('allowed_channels').select().eq('guild_id', gid);
+    const { data: allowed } = await supa.from('allowed_channels').select().eq('guild_id', gid);
     if (!allowed?.some(c => String(c.channel_id) === String(cid))) return;
 
-    const {
-        data: setting
-    } = await supa.from('settings').select().eq('guild_id', gid).single();
-    const xpGain = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
+    const { data: setting } = await supa.from('settings').select().eq('guild_id', gid).single();
+    if (!setting) return;
 
-    let {
-        data: user
-    } = await supa.from('users').select().eq('user_id', uid).single();
+    const baseXp = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
+    const boostMultiplier = setting?.boost_multiplier ?? 1;
+    const boostRoleId = setting?.vc_role_id;
+
+    const member = await msg.guild.members.fetch(uid);
+    const hasBoostRole = boostRoleId && member.roles.cache.has(boostRoleId);
+    const xpGain = hasBoostRole ? baseXp * boostMultiplier : baseXp;
+
+    let { data: user } = await supa.from('users').select().eq('user_id', uid).single();
     if (!user) {
         const res = await supa.from('users').insert({
             user_id: uid,
@@ -361,21 +415,13 @@ bot.on('messageCreate', async msg => {
     }).eq('user_id', uid);
 
     if (leveledUp) {
-        const {
-            data: setting
-        } = await supa.from('settings').select().eq('guild_id', gid).single();
-        const {
-            data: roles
-        } = await supa.from('level_roles').select().eq('guild_id', gid);
-
+        const { data: roles } = await supa.from('level_roles').select().eq('guild_id', gid);
         const announceChannelId = setting?.levelup_channel;
         const announceChannel = announceChannelId ? msg.guild.channels.cache.get(announceChannelId) : msg.channel;
 
         announceChannel?.isTextBased() && announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
 
-        const member = await msg.guild.members.fetch(uid);
         const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
-
         for (const r of matchedRoles) {
             const role = msg.guild.roles.cache.get(r.role_id);
             if (role && !member.roles.cache.has(role.id)) {
@@ -385,14 +431,13 @@ bot.on('messageCreate', async msg => {
         }
     }
 
-    // direct query logic
     const { data: existing } = await supa
-    .from('message_log')
-    .select('count')
-    .eq('user_id', uid)
-    .eq('guild_id', gid)
-    .eq('date', now)
-    .single();
+        .from('message_log')
+        .select('count')
+        .eq('user_id', uid)
+        .eq('guild_id', gid)
+        .eq('date', now)
+        .single();
 
     if (existing) {
         await supa.from('message_log')
@@ -404,15 +449,14 @@ bot.on('messageCreate', async msg => {
         await supa.from('message_log')
             .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
     }
-
-
-
 });
 
 
-bot.on('voiceStateUpdate', (oldState, newState) => {
+
+bot.on('voiceStateUpdate', async (oldState, newState) => {
   const uid = newState.id;
-  const guild_id = newState.guild.id;
+  const guild = newState.guild;
+  const guild_id = guild.id;
   const member = newState.member;
 
   const inVoice = newState.channelId !== null;
@@ -426,7 +470,46 @@ bot.on('voiceStateUpdate', (oldState, newState) => {
   } else {
     activeVoiceUsers.delete(uid);
   }
+
+  const affectedChannelId = newState.channelId || oldState.channelId;
+  if (!affectedChannelId) return;
+
+  // 🕒 Cooldown check
+  const lastUpdated = roleCooldown.get(affectedChannelId) || 0;
+  const now = Date.now();
+  if (now - lastUpdated < COOLDOWN_MS) return;
+  roleCooldown.set(affectedChannelId, now);
+
+  // 🧠 Fetch Supabase VC Settings
+  const { data: settings, error } = await supabase
+    .from('settings')
+    .select('vc_personqty, vc_role_id')
+    .eq('guild_id', guild_id)
+    .single();
+
+  if (error || !settings) return;
+
+  const { vc_personqty, vc_role_id } = settings;
+  const role = await guild.roles.fetch(vc_role_id).catch(() => null);
+  if (!role) return;
+
+  const voiceChannel = guild.channels.cache.get(affectedChannelId);
+  if (!voiceChannel || voiceChannel.type !== 2) return;
+
+  const humanMembers = voiceChannel.members.filter(m => !m.user.bot);
+  const meetsMinimum = humanMembers.size >= vc_personqty;
+
+  for (const [, m] of humanMembers) {
+    const hasRole = m.roles.cache.has(role.id);
+
+    if (meetsMinimum && !hasRole) {
+      await m.roles.add(role).catch(() => {});
+    } else if (!meetsMinimum && hasRole) {
+      await m.roles.remove(role).catch(() => {});
+    }
+  }
 });
+
 
 
 
@@ -512,65 +595,67 @@ cron.schedule('0 5 * * *', async () => {
 });
 
 cron.schedule('* * * * *', async () => {
-    const now = new Date().toISOString().split('T')[0];
+  const now = new Date().toISOString().split('T')[0];
 
-    for (const [uid, session] of activeVoiceUsers.entries()) {
-        const {
-            guild_id,
-            channel_id
-        } = session;
+  for (const [uid, session] of activeVoiceUsers.entries()) {
+    const { guild_id, channel_id } = session;
 
-        const {
-            data: setting
-        } = await supa.from('settings').select().eq('guild_id', guild_id).single();
-        const xpGain = setting?.vc_points ?? parseInt(process.env.DEFAULT_VC_POINTS) ?? 2;
+    const guild = bot.guilds.cache.get(guild_id);
+    if (!guild) continue;
 
-        let {
-            data: user
-        } = await supa.from('users').select().eq('user_id', uid).single();
-        if (!user) {
-            const res = await supa.from('users').insert({
-                user_id: uid,
-                xp: 0,
-                lvl: 1,
-                coins: 0,
-                streak: 1,
-                last_active: now
-            }).select().single();
-            user = res.data;
-        }
+    const { data: setting } = await supa.from('settings').select().eq('guild_id', guild_id).single();
+    const baseXp = setting?.vc_points ?? parseInt(process.env.DEFAULT_VC_POINTS) ?? 2;
+    const boostMultiplier = setting?.boost_multiplier ?? 1;
+    const boostRoleId = setting?.vc_role_id;
 
-        const newXp = user.xp + xpGain;
-        const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
-        const leveledUp = newLvl > user.lvl;
+    const member = await guild.members.fetch(uid).catch(() => null);
+    if (!member) continue;
 
-        await supa.from('users').update({
-            xp: newXp,
-            lvl: newLvl,
-            last_active: now
-        }).eq('user_id', uid);
+    const hasBoostRole = boostRoleId && member.roles.cache.has(boostRoleId);
+    const xpGain = hasBoostRole ? baseXp * boostMultiplier : baseXp;
 
-        if (leveledUp) {
-            const {
-                data: roles
-            } = await supa.from('level_roles').select().eq('guild_id', guild_id);
-            const announceChannelId = setting?.levelup_channel;
-            const guild = bot.guilds.cache.get(guild_id);
-            const announceChannel = announceChannelId ? guild.channels.cache.get(announceChannelId) : null;
-            announceChannel?.isTextBased() && announceChannel.send(`🔊 <@${uid}> leveled up to **${newLvl}** from voice chat!`);
-
-            const member = await guild.members.fetch(uid);
-            const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
-
-            for (const r of matchedRoles) {
-                const role = guild.roles.cache.get(r.role_id);
-                if (role && !member.roles.cache.has(role.id)) {
-                    await member.roles.add(role);
-                    announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
-                }
-            }
-        }
+    let { data: user } = await supa.from('users').select().eq('user_id', uid).single();
+    if (!user) {
+      const res = await supa.from('users').insert({
+        user_id: uid,
+        xp: 0,
+        lvl: 1,
+        coins: 0,
+        streak: 1,
+        last_active: now
+      }).select().single();
+      user = res.data;
     }
+
+    const newXp = user.xp + xpGain;
+    const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
+    const leveledUp = newLvl > user.lvl;
+
+    await supa.from('users').update({
+      xp: newXp,
+      lvl: newLvl,
+      last_active: now
+    }).eq('user_id', uid);
+
+    if (leveledUp) {
+      const { data: roles } = await supa.from('level_roles').select().eq('guild_id', guild_id);
+      const announceChannelId = setting?.levelup_channel;
+      const announceChannel = announceChannelId ? guild.channels.cache.get(announceChannelId) : null;
+
+      if (announceChannel?.isTextBased()) {
+        announceChannel.send(`🔊 <@${uid}> leveled up to **${newLvl}** from voice chat!`);
+      }
+
+      const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
+      for (const r of matchedRoles) {
+        const role = guild.roles.cache.get(r.role_id);
+        if (role && !member.roles.cache.has(role.id)) {
+          await member.roles.add(role).catch(() => {});
+          announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
+        }
+      }
+    }
+  }
 });
 
 bot.login(process.env.DISCORD_TOKEN);
