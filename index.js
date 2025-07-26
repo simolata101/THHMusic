@@ -481,7 +481,7 @@ bot.on('voiceStateUpdate', async (oldState, newState) => {
   roleCooldown.set(affectedChannelId, now);
 
   // 🧠 Fetch Supabase VC Settings
-  const { data: settings, error } = await supabase
+  const { data: settings, error } = await supa
     .from('settings')
     .select('vc_personqty, vc_role_id')
     .eq('guild_id', guild_id)
