@@ -457,12 +457,12 @@ bot.on('voiceStateUpdate', async (oldState, newState) => {
   const uid = newState.id;
   const guild = newState.guild;
   const guild_id = guild.id;
-  const member = newState.member;
+  const member = await guild.members.fetch(uid).catch(() => null);
+  if (!member) return;
 
   const inVoice = newState.channelId !== null;
   const selfMuted = newState.selfMute;
   const selfDeafened = newState.selfDeaf;
-
   const eligible = inVoice && !selfMuted && !selfDeafened;
 
   if (eligible) {
@@ -474,13 +474,11 @@ bot.on('voiceStateUpdate', async (oldState, newState) => {
   const affectedChannelId = newState.channelId || oldState.channelId;
   if (!affectedChannelId) return;
 
-  // 🕒 Cooldown check
   const lastUpdated = roleCooldown.get(affectedChannelId) || 0;
   const now = Date.now();
   if (now - lastUpdated < COOLDOWN_MS) return;
   roleCooldown.set(affectedChannelId, now);
 
-  // 🧠 Fetch Supabase VC Settings
   const { data: setting, error } = await supa
     .from('settings')
     .select('vc_personqty, vc_role_id')
@@ -497,18 +495,24 @@ bot.on('voiceStateUpdate', async (oldState, newState) => {
   if (!voiceChannel || voiceChannel.type !== 2) return;
 
   const humanMembers = voiceChannel.members.filter(m => !m.user.bot);
-  const meetsMinimum = humanMembers.size >= vc_personqty;
+  const minimum = vc_personqty ?? 2;
+  const meetsMinimum = humanMembers.size >= minimum;
 
   for (const [, m] of humanMembers) {
     const hasRole = m.roles.cache.has(role.id);
-
     if (meetsMinimum && !hasRole) {
       await m.roles.add(role).catch(() => {});
     } else if (!meetsMinimum && hasRole) {
       await m.roles.remove(role).catch(() => {});
     }
   }
+
+  // 🔧 If user left VC entirely, remove role if they had it
+  if (!inVoice && role && member.roles.cache.has(role.id)) {
+    await member.roles.remove(role).catch(() => {});
+  }
 });
+
 
 
 
