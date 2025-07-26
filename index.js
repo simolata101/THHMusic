@@ -199,7 +199,7 @@ bot.on('interactionCreate', async inter => {
         const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
         const decayInfo = decay ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : '🕒 No decay configured.';
 
-	const vcBoostRole = interaction.guild.roles.cache.get(settings.vc_role_id);
+	const vcBoostRole = inter.guild.roles.cache.get(settings.vc_role_id);
 
 	const status = vcBoostRole
 	  ? `• Role: ${vcBoostRole.name}\n• Minimum VC Members: ${settings.vc_personqty}`
@@ -343,7 +343,7 @@ bot.on('interactionCreate', async inter => {
 	    });
 	  }
 	
-	  await interaction.reply({
+	  await inter.reply({
 	    content: `✅ VC requirement settings updated:\n• Minimum members: **${min}**\n• Role to assign: **${role.name}**`,
 	    ephemeral: true
 	  });
