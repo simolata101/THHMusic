@@ -1,4 +1,4 @@
-// index.js
+
 import {
     Client,
     GatewayIntentBits,
@@ -18,9 +18,6 @@ dotenv.config();
 const settingsConfig = JSON.parse(fs.readFileSync('./config/settings.json', 'utf8'));
 const supa = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 const activeVoiceUsers = new Map(); // user_id => { guild_id, channel_id }
-const roleCooldown = new Map(); // Map<channelId, timestamp>
-const COOLDOWN_MS = 5_000; // 5 seconds cooldown per VC channel
-
 
 const bot = new Client({
     intents: [
@@ -66,18 +63,6 @@ bot.on('ready', async () => {
             .setDescription('Messages per day to maintain streak')
             .setRequired(true))
         .setDescription('Set required messages per day for streaks (Admin)'),
-	new SlashCommandBuilder().setName('setminimumpervc')
-	  .setDescription('Set the minimum VC members and role to assign (Admin)')
-	  .addIntegerOption(opt =>
-	    opt.setName('min')
-	      .setDescription('Minimum number of VC members required')
-	      .setRequired(true)
-	  )
-	  .addRoleOption(opt =>
-	    opt.setName('role')
-	      .setDescription('Role to give when requirement is met')
-	      .setRequired(true)
-	  )
         new SlashCommandBuilder().setName('setlevelupchannel')
         .addChannelOption(opt =>
             opt.setName('channel')
@@ -212,7 +197,6 @@ bot.on('interactionCreate', async inter => {
       **/setlevelupchannel [#channel]** – Set level-up message channel
       **/setstreakmessages [amount]** – Set required daily messages for streak (Admin)
       **/setvcpoints [amount]** – Set XP per minute in voice chat
-      **/setminimumpervc [min] [role]
       
       📊 XP per message: **${msgPoints}**  
       📺 Allowed XP channels: ${allowedList}  
@@ -312,34 +296,6 @@ bot.on('interactionCreate', async inter => {
 
         await supa.from('level_roles').delete().eq('guild_id', gid).eq('role_id', role.id);
         return inter.reply(`🗑️ Removed **${role.name}** from level role assignments.`);
-    }
-
-    if (interaction.commandName === 'setminimumpervc') {
-	  const min = interaction.options.getInteger('min');
-	  const role = interaction.options.getRole('role');
-	  const guildId = interaction.guild.id;
-	
-	  const { error } = await supabase
-	    .from('settings')
-	    .upsert({
-	      guild_id: guildId,
-	      vc_personqty: min,
-	      vc_role_id: role.id,
-	      updated_at: new Date().toISOString()
-	    }, { onConflict: 'guild_id' });
-	
-	  if (error) {
-	    console.error('❌ Supabase error:', error.message);
-	    return interaction.reply({
-	      content: '❌ Failed to save VC settings. Please try again later.',
-	      ephemeral: true
-	    });
-	  }
-	
-	  await interaction.reply({
-	    content: `✅ VC requirement settings updated:\n• Minimum members: **${min}**\n• Role to assign: **${role.name}**`,
-	    ephemeral: true
-	  });
     }
 
     if (inter.commandName === 'leaderboard') {
@@ -454,10 +410,9 @@ bot.on('messageCreate', async msg => {
 });
 
 
-bot.on('voiceStateUpdate', async (oldState, newState) => {
+bot.on('voiceStateUpdate', (oldState, newState) => {
   const uid = newState.id;
-  const guild = newState.guild;
-  const guild_id = guild.id;
+  const guild_id = newState.guild.id;
   const member = newState.member;
 
   const inVoice = newState.channelId !== null;
@@ -471,46 +426,7 @@ bot.on('voiceStateUpdate', async (oldState, newState) => {
   } else {
     activeVoiceUsers.delete(uid);
   }
-
-  const affectedChannelId = newState.channelId || oldState.channelId;
-  if (!affectedChannelId) return;
-
-  // 🕒 Cooldown check
-  const lastUpdated = roleCooldown.get(affectedChannelId) || 0;
-  const now = Date.now();
-  if (now - lastUpdated < COOLDOWN_MS) return;
-  roleCooldown.set(affectedChannelId, now);
-
-  // 🧠 Fetch Supabase VC Settings
-  const { data: settings, error } = await supabase
-    .from('settings')
-    .select('vc_personqty, vc_role_id')
-    .eq('guild_id', guild_id)
-    .single();
-
-  if (error || !settings) return;
-
-  const { vc_personqty, vc_role_id } = settings;
-  const role = await guild.roles.fetch(vc_role_id).catch(() => null);
-  if (!role) return;
-
-  const voiceChannel = guild.channels.cache.get(affectedChannelId);
-  if (!voiceChannel || voiceChannel.type !== 2) return;
-
-  const humanMembers = voiceChannel.members.filter(m => !m.user.bot);
-  const meetsMinimum = humanMembers.size >= vc_personqty;
-
-  for (const [, m] of humanMembers) {
-    const hasRole = m.roles.cache.has(role.id);
-
-    if (meetsMinimum && !hasRole) {
-      await m.roles.add(role).catch(() => {});
-    } else if (!meetsMinimum && hasRole) {
-      await m.roles.remove(role).catch(() => {});
-    }
-  }
 });
-
 
 
 
