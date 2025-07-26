@@ -384,7 +384,7 @@ bot.on('messageCreate', async msg => {
     if (!setting) return;
 
     const baseXp = setting?.message_points ?? parseInt(process.env.DEFAULT_MESSAGE_POINTS) ?? settingsConfig.default_message_points;
-    const boostMultiplier = setting?.boost_multiplier ?? 1;
+    const boostMultiplier = setting?.booster_multiplier ?? 1;
     const boostRoleId = setting?.vc_role_id;
 
     const member = await msg.guild.members.fetch(uid);
@@ -609,7 +609,7 @@ cron.schedule('* * * * *', async () => {
 
     const { data: setting } = await supa.from('settings').select().eq('guild_id', guild_id).single();
     const baseXp = setting?.vc_points ?? parseInt(process.env.DEFAULT_VC_POINTS) ?? 2;
-    const boostMultiplier = setting?.boost_multiplier ?? 1;
+    const boostMultiplier = setting?.booster_multiplier ?? 1;
     const boostRoleId = setting?.vc_role_id;
 
     const member = await guild.members.fetch(uid).catch(() => null);
