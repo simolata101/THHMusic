@@ -87,7 +87,7 @@ bot.on('ready', async () => {
     ].map(c => c.toJSON());
 
     await bot.application.commands.set(cmds);
-    console.log('âœ… Bot is ready');
+    console.log('✅ Bot is ready');
 });
 
 // Slash Command Handler
@@ -127,7 +127,7 @@ bot.on('interactionCreate', async inter => {
     const { data: streakCfg } = await supa.from('streak_config').select().eq('guild_id', gid).single();
 	const { data: msgCount } = await supa.from('message_log').select('count').eq('user_id', uid).eq('guild_id', gid).eq('date', now).single();
 
-    if (!targetData) return inter.reply(`âŒ No data found for <@${target.id}>`);
+    if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
 
     const buffer = await createStatusCard({
         username: target.username,
@@ -141,26 +141,26 @@ bot.on('interactionCreate', async inter => {
     const attachment = new AttachmentBuilder(buffer, { name: 'status.png' });
 
     return inter.reply({
-        content: `ðŸŒŸ Status for <@${target.id}>`,
+        content: `🌟 Status for <@${target.id}>`,
         files: [attachment]
     });
     }
 
       if (inter.commandName === 'setvcpoints') {
           if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return inter.reply('âŒ Admin only.');
+            return inter.reply('❌ Admin only.');
           }
         
           const amt = inter.options.getInteger('amount');
           await supa.from('settings').upsert({ guild_id: gid, vc_points: amt });
     
-      return inter.reply(`ðŸ”Š Voice XP set to **${amt} XP/minute**.`);
+      return inter.reply(`🔊 Voice XP set to **${amt} XP/minute**.`);
     }
 
 
     if (inter.commandName === 'setstreakmessages') {
         if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return inter.reply('âŒ Admin only.');
+            return inter.reply('❌ Admin only.');
         }
 
         const amount = inter.options.getInteger('amount');
@@ -169,7 +169,7 @@ bot.on('interactionCreate', async inter => {
             required_message: amount
         });
 
-        return inter.reply(`ðŸ“ˆ Required daily messages for streak set to **${amount}**.`);
+        return inter.reply(`📈 Required daily messages for streak set to **${amount}**.`);
     }
 
     if (inter.commandName === 'help') {
@@ -190,96 +190,96 @@ bot.on('interactionCreate', async inter => {
         } = await supa.from('level_roles').select().eq('guild_id', gid);
         const roleList = levelRoles?.map(r => {
             const roleObj = inter.guild.roles.cache.get(r.role_id);
-            return roleObj ? `â€¢ ${roleObj.name}: Levels ${r.min_level}â€“${r.max_level}` : null;
+            return roleObj ? `• ${roleObj.name}: Levels ${r.min_level}–${r.max_level}` : null;
         }).filter(Boolean).join('\n') || '*None set*';
         const levelUpChannel = setting?.levelup_channel ? `<#${setting.levelup_channel}>` : '*Not set*';
 
         const allowedList = allowed?.map(a => `<#${a.channel_id}>`).join(', ') || '*None*';
         const msgPoints = setting?.message_points ?? process.env.DEFAULT_MESSAGE_POINTS ?? settingsConfig.default_message_points;
-        const decayInfo = decay ? `ðŸ•’ XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : 'ðŸ•’ No decay configured.';
+        const decayInfo = decay ? `🕒 XP decays after ${decay.days_before_decay} days by ${decay.percentage_decay * 100}%` : '🕒 No decay configured.';
 
 	const vcBoostRole = inter.guild.roles.cache.get(setting.vc_role_id);
 
 	const status = vcBoostRole
-	  ? `â€¢ Role: ${vcBoostRole.name}\nâ€¢ Minimum VC Members: ${setting.vc_personqty}`
+	  ? `• Role: ${vcBoostRole.name}\n• Minimum VC Members: ${setting.vc_personqty}`
 	  : '*VC role not found*';
 
         return inter.reply({
             embeds: [{
-                title: 'ðŸ“˜ Help Menu',
-                description: `**/showstatus [user]** â€“ View XP, level, streak  
-      **/leaderboard** â€“ Show top 10 users
-      **/setrole [min] [max] [role]** â€“ Auto-assign role
-      **/removerole [role]** â€“ Remove auto role
-      **/setmessagepoints [amount]** â€“ Set XP gain per message
-      **/allowchannel [#channel]** â€“ Allow XP in channel
-      **/removechannel [#channel]** â€“ Block XP in channel
-      **/setlevelupchannel [#channel]** â€“ Set level-up message channel
-      **/setstreakmessages [amount]** â€“ Set required daily messages for streak (Admin)
-      **/setvcpoints [amount]** â€“ Set XP per minute in voice chat
+                title: '📘 Help Menu',
+                description: `**/showstatus [user]** – View XP, level, streak  
+      **/leaderboard** – Show top 10 users
+      **/setrole [min] [max] [role]** – Auto-assign role
+      **/removerole [role]** – Remove auto role
+      **/setmessagepoints [amount]** – Set XP gain per message
+      **/allowchannel [#channel]** – Allow XP in channel
+      **/removechannel [#channel]** – Block XP in channel
+      **/setlevelupchannel [#channel]** – Set level-up message channel
+      **/setstreakmessages [amount]** – Set required daily messages for streak (Admin)
+      **/setvcpoints [amount]** – Set XP per minute in voice chat
       **/setminimumpervc [min] [role] - Set minimum requirement per vc and the role assignment
       
-      ðŸ“Š XP per message: **${msgPoints}**  
-      ðŸ“º Allowed XP channels: ${allowedList}  
+      📊 XP per message: **${msgPoints}**  
+      📺 Allowed XP channels: ${allowedList}  
       ${decayInfo}  
-      ðŸ”¥ Streak requirement: ${streak_config?.required_message ?? 'Not set'} message(s) per day
-      ðŸ”Š VC XP per minute: **${setting?.vc_points ?? 'Not set'}**
-      ðŸ”Š ${status}
-      ðŸŽ–ï¸ **Level Roles:**  
+      🔥 Streak requirement: ${streak_config?.required_message ?? 'Not set'} message(s) per day
+      🔊 VC XP per minute: **${setting?.vc_points ?? 'Not set'}**
+      🔊 ${status}
+      🎖️ **Level Roles:**  
       ${roleList}
-      ðŸ“¢ Level-up messages: ${levelUpChannel}`,
+      📢 Level-up messages: ${levelUpChannel}`,
                 color: 0x7a5cfa
             }]
         });
     }
 
     if (inter.commandName === 'setmessagepoints') {
-        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('âŒ Admin only.');
+        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
         const amt = inter.options.getInteger('amount');
         await supa.from('settings').upsert({
             guild_id: gid,
             message_points: amt
         });
-        return inter.reply(`âœ… XP per message set to **${amt}**.`);
+        return inter.reply(`✅ XP per message set to **${amt}**.`);
     }
 
     if (inter.commandName === 'allowchannel') {
-        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('âŒ Admin only.');
+        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
         const channel = inter.options.getChannel('channel');
-        if (!channel.isTextBased()) return inter.reply('âŒ Please select a text-based channel.');
+        if (!channel.isTextBased()) return inter.reply('❌ Please select a text-based channel.');
         await supa.from('allowed_channels').upsert({
             guild_id: gid,
             channel_id: channel.id
         });
-        return inter.reply(`âœ… XP now allowed in <#${channel.id}>`);
+        return inter.reply(`✅ XP now allowed in <#${channel.id}>`);
     }
 
     if (inter.commandName === 'removechannel') {
-        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('âŒ Admin only.');
+        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
         const channel = inter.options.getChannel('channel');
         await supa.from('allowed_channels').delete().eq('guild_id', gid).eq('channel_id', channel.id);
-        return inter.reply(`ðŸš« XP disabled in <#${channel.id}>`);
+        return inter.reply(`🚫 XP disabled in <#${channel.id}>`);
     }
 
     if (inter.commandName === 'setlevelupchannel') {
         if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return inter.reply('âŒ Admin only.');
+            return inter.reply('❌ Admin only.');
         }
 
         const channel = inter.options.getChannel('channel');
         if (!channel.isTextBased()) {
-            return inter.reply('âŒ Please select a text-based channel.');
+            return inter.reply('❌ Please select a text-based channel.');
         }
 
         await supa.from('settings').upsert({
             guild_id: gid,
             levelup_channel: channel.id
         });
-        return inter.reply(`ðŸ“¢ Level-up messages will now be sent in <#${channel.id}>.`);
+        return inter.reply(`📢 Level-up messages will now be sent in <#${channel.id}>.`);
     }
 
     if (inter.commandName === 'setrole') {
-        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('âŒ Admin only.');
+        if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) return inter.reply('❌ Admin only.');
         const min = inter.options.getInteger('min');
         const max = inter.options.getInteger('max');
         const role = inter.options.getRole('role');
@@ -291,7 +291,7 @@ bot.on('interactionCreate', async inter => {
             (min >= r.min_level && min <= r.max_level) ||
             (max >= r.min_level && max <= r.max_level)
         );
-        if (overlapping) return inter.reply('âŒ Overlapping level range exists.');
+        if (overlapping) return inter.reply('❌ Overlapping level range exists.');
 
         await supa.from('level_roles').insert({
             guild_id: gid,
@@ -299,12 +299,12 @@ bot.on('interactionCreate', async inter => {
             max_level: max,
             role_id: role.id
         });
-        return inter.reply(`ðŸŽ–ï¸ Role **${role.name}** will now be assigned to levels ${min}â€“${max}`);
+        return inter.reply(`🎖️ Role **${role.name}** will now be assigned to levels ${min}–${max}`);
     }
 
     if (inter.commandName === 'removerole') {
         if (!inter.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return inter.reply('âŒ Admin only.');
+            return inter.reply('❌ Admin only.');
         }
 
         const role = inter.options.getRole('role');
@@ -313,11 +313,11 @@ bot.on('interactionCreate', async inter => {
         } = await supa.from('level_roles').select().eq('guild_id', gid).eq('role_id', role.id).single();
 
         if (!existing) {
-            return inter.reply('âŒ That role is not aassigned through level roles.');
+            return inter.reply('❌ That role is not aassigned through level roles.');
         }
 
         await supa.from('level_roles').delete().eq('guild_id', gid).eq('role_id', role.id);
-        return inter.reply(`ðŸ—‘ï¸ Removed **${role.name}** from level role assignments.`);
+        return inter.reply(`🗑️ Removed **${role.name}** from level role assignments.`);
     }
 
     if (inter.commandName === 'setminimumpervc') {
@@ -335,15 +335,15 @@ bot.on('interactionCreate', async inter => {
 	    }, { onConflict: 'guild_id' });
 	
 	  if (error) {
-	    console.error('âŒ Supabase error:', error.message);
+	    console.error('❌ Supabase error:', error.message);
 	    return inter.reply({
-	      content: 'âŒ Failed to save VC settings. Please try again later.',
+	      content: '❌ Failed to save VC settings. Please try again later.',
 	      ephemeral: true
 	    });
 	  }
 	
 	  await inter.reply({
-	    content: `âœ… VC requirement settings updated:\nâ€¢ Minimum members: **${min}**\nâ€¢ Role to assign: **${role.name}**`,
+	    content: `✅ VC requirement settings updated:\n• Minimum members: **${min}**\n• Role to assign: **${role.name}**`,
 	    ephemeral: true
 	  });
     }
@@ -355,11 +355,11 @@ bot.on('interactionCreate', async inter => {
             ascending: false
         }).limit(10);
         const members = await inter.guild.members.fetch();
-        const list = top.map((u, i) => `**${i + 1}.** ${members.get(u.user_id)?.displayName || `<@${u.user_id}>`} â€“ ${u.xp} XP`).join('\n');
+        const list = top.map((u, i) => `**${i + 1}.** ${members.get(u.user_id)?.displayName || `<@${u.user_id}>`} – ${u.xp} XP`).join('\n');
 
         return inter.reply({
             embeds: [{
-                title: 'ðŸ† Top 10 Leaderboard',
+                title: '🏆 Top 10 Leaderboard',
                 description: list,
                 color: 0xffcc00
             }]
@@ -418,14 +418,14 @@ bot.on('messageCreate', async msg => {
         const announceChannelId = setting?.levelup_channel;
         const announceChannel = announceChannelId ? msg.guild.channels.cache.get(announceChannelId) : msg.channel;
 
-        announceChannel?.isTextBased() && announceChannel.send(`ðŸŽ‰ <@${uid}> leveled up to **${newLvl}**!`);
+        announceChannel?.isTextBased() && announceChannel.send(`🎉 <@${uid}> leveled up to **${newLvl}**!`);
 
         const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
         for (const r of matchedRoles) {
             const role = msg.guild.roles.cache.get(r.role_id);
             if (role && !member.roles.cache.has(role.id)) {
                 await member.roles.add(role);
-                msg.channel.send(`ðŸ›¡ï¸ <@${uid}> received role **${role.name}**!`);
+                msg.channel.send(`🛡️ <@${uid}> received role **${role.name}**!`);
             }
         }
     }
@@ -506,7 +506,7 @@ bot.on('voiceStateUpdate', async (oldState, newState) => {
     }
   }
 
-  // ðŸ”§ If user left VC entirely, remove role if they had it
+  // 🔧 If user left VC entirely, remove role if they had it
   if (!inVoice && role && member.roles.cache.has(role.id)) {
     await member.roles.remove(role).catch(() => {});
   }
@@ -542,7 +542,7 @@ cron.schedule('0 4 * * *', async () => {
     }
 });
 
-// Streak Update Job â€“ 5:00 AM
+// Streak Update Job – 5:00 AM
 cron.schedule('0 5 * * *', async () => {
     const today = new Date();
     const todayStr = today.toISOString().split('T')[0];
@@ -594,7 +594,7 @@ cron.schedule('0 5 * * *', async () => {
         }
     }
 
-    console.log('âœ… Streaks updated at 5:00 AM based on message count');
+    console.log('✅ Streaks updated at 5:00 AM based on message count');
 });
 
 cron.schedule('* * * * *', async () => {
@@ -646,7 +646,7 @@ cron.schedule('* * * * *', async () => {
       const announceChannel = announceChannelId ? guild.channels.cache.get(announceChannelId) : null;
 
       if (announceChannel?.isTextBased()) {
-        announceChannel.send(`ðŸ”Š <@${uid}> leveled up to **${newLvl}** from voice chat!`);
+        announceChannel.send(`🔊 <@${uid}> leveled up to **${newLvl}** from voice chat!`);
       }
 
       const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
@@ -654,7 +654,7 @@ cron.schedule('* * * * *', async () => {
         const role = guild.roles.cache.get(r.role_id);
         if (role && !member.roles.cache.has(role.id)) {
           await member.roles.add(role).catch(() => {});
-          announceChannel?.send(`ðŸ›¡ï¸ <@${uid}> received role **${role.name}**!`);
+          announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
         }
       }
     }
