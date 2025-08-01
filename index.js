@@ -136,7 +136,7 @@ bot.on('interactionCreate', async inter => {
         xp: targetData.xp,
         lvl: targetData.lvl,
         streak: targetData.streak,
-	countMsg: msgCount._count,
+	countMsg: msgCount?._count ?? 0,
         reqMsg: streakCfg.required_message
     }, target.displayAvatarURL({ extension: 'png', size: 256 }));
 
