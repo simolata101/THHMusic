@@ -453,64 +453,73 @@ bot.on('messageCreate', async msg => {
 
 
 bot.on('voiceStateUpdate', async (oldState, newState) => {
-  const uid = newState.id;
-  const guild = newState.guild;
-  const guild_id = guild.id;
-  const member = await guild.members.fetch(uid).catch(() => null);
-  if (!member) return;
+  try {
+    const uid = newState.id;
+    const guild = newState.guild;
+    const guild_id = guild.id;
+    const member = await guild.members.fetch(uid).catch(() => null);
+    if (!member) return;
 
-  const inVoice = newState.channelId !== null;
-  const selfMuted = newState.selfMute;
-  const selfDeafened = newState.selfDeaf;
-  const eligible = inVoice && !selfMuted && !selfDeafened;
+    const inVoice = newState.channelId !== null;
+    const selfMuted = newState.selfMute;
+    const selfDeafened = newState.selfDeaf;
+    const eligible = inVoice && !selfMuted && !selfDeafened;
 
-  if (eligible) {
-    activeVoiceUsers.set(uid, { guild_id, channel_id: newState.channelId });
-  } else {
-    activeVoiceUsers.delete(uid);
-  }
-
-  const affectedChannelId = newState.channelId || oldState.channelId;
-  if (!affectedChannelId) return;
-
-  const lastUpdated = roleCooldown.get(affectedChannelId) || 0;
-  const now = Date.now();
-  if (now - lastUpdated < COOLDOWN_MS) return;
-  roleCooldown.set(affectedChannelId, now);
-
-  const { data: setting, error } = await supa
-    .from('settings')
-    .select('vc_personqty, vc_role_id')
-    .eq('guild_id', guild_id)
-    .single();
-
-  if (error || !setting) return;
-
-  const { vc_personqty, vc_role_id } = setting;
-  const role = await guild.roles.fetch(vc_role_id).catch(() => null);
-  if (!role) return;
-
-  const voiceChannel = guild.channels.cache.get(affectedChannelId);
-  if (!voiceChannel || voiceChannel.type !== 2) return;
-
-  const humanMembers = voiceChannel.members.filter(m => !m.user.bot);
-  const minimum = vc_personqty ?? 2;
-  const meetsMinimum = humanMembers.size >= minimum;
-
-  for (const [, m] of humanMembers) {
-    const hasRole = m.roles.cache.has(role.id);
-    if (meetsMinimum && !hasRole) {
-      await m.roles.add(role).catch(() => {});
-    } else if (!meetsMinimum && hasRole) {
-      await m.roles.remove(role).catch(() => {});
+    if (eligible) {
+      activeVoiceUsers.set(uid, { guild_id, channel_id: newState.channelId });
+    } else {
+      activeVoiceUsers.delete(uid);
     }
-  }
 
-  // 🔧 If user left VC entirely, remove role if they had it
-  if (!inVoice && role && member.roles.cache.has(role.id)) {
-    await member.roles.remove(role).catch(() => {});
+    const affectedChannelId = newState.channelId || oldState.channelId;
+    if (!affectedChannelId) return;
+
+    const lastUpdated = roleCooldown.get(affectedChannelId) || 0;
+    const now = Date.now();
+    if (now - lastUpdated < COOLDOWN_MS) return;
+    roleCooldown.set(affectedChannelId, now);
+
+    const { data: setting, error } = await supa
+      .from('settings')
+      .select('vc_personqty, vc_role_id')
+      .eq('guild_id', guild_id)
+      .single();
+
+    if (error || !setting) return;
+
+    const { vc_personqty, vc_role_id } = setting;
+    const role = await guild.roles.fetch(vc_role_id).catch(() => null);
+    if (!role) return;
+
+    const voiceChannel = guild.channels.cache.get(affectedChannelId);
+    if (!voiceChannel || voiceChannel.type !== 2 || !voiceChannel.members) {
+      // console.warn(`Invalid voiceChannel: ${affectedChannelId}`);
+      return;
+    }
+
+    const humanMembers = [...voiceChannel.members.values()].filter(m => !m.user.bot);
+    const minimum = vc_personqty ?? 2;
+    const meetsMinimum = humanMembers.length >= minimum;
+
+    for (const m of humanMembers) {
+      const hasRole = m.roles.cache.has(role.id);
+      if (meetsMinimum && !hasRole) {
+        await m.roles.add(role).catch(() => {});
+      } else if (!meetsMinimum && hasRole) {
+        await m.roles.remove(role).catch(() => {});
+      }
+    }
+
+    // If user left VC entirely, remove role if they had it
+    if (!inVoice && role && member.roles.cache.has(role.id)) {
+      await member.roles.remove(role).catch(() => {});
+    }
+
+  } catch (err) {
+    console.error("voiceStateUpdate error:", err);
   }
 });
+
 
 
 
