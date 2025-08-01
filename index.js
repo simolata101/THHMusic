@@ -125,7 +125,9 @@ bot.on('interactionCreate', async inter => {
     const target = inter.options.getUser('user') || inter.user;
     const { data: targetData } = await supa.from('users').select().eq('user_id', target.id).single();
     const { data: streakCfg } = await supa.from('streak_config').select().eq('guild_id', gid).single();
-	const { data: msgCount } = await supa.from('message_log').select('count').eq('user_id', uid).eq('guild_id', gid).eq('date', now).single();
+    const { data: msgCount } = await supa.from('message_log').select('count').eq('user_id', uid).eq('guild_id', gid).eq('date', now).single();
+
+    const _count = msgCount?.count ?? 0;
 
     if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
 
@@ -134,7 +136,7 @@ bot.on('interactionCreate', async inter => {
         xp: targetData.xp,
         lvl: targetData.lvl,
         streak: targetData.streak,
-		countMsg: msgCount.count,
+	countMsg: msgCount._count,
         reqMsg: streakCfg.required_message
     }, target.displayAvatarURL({ extension: 'png', size: 256 }));
 
