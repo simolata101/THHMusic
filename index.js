@@ -125,9 +125,9 @@ bot.on('interactionCreate', async inter => {
     const target = inter.options.getUser('user') || inter.user;
     const { data: targetData } = await supa.from('users').select().eq('user_id', target.id).single();
     const { data: streakCfg } = await supa.from('streak_config').select().eq('guild_id', gid).single();
-    const { data: msgCount } = await supa.from('message_log').select('count').eq('user_id', uid).eq('guild_id', gid).eq('date', now).single();
+    const { data: msgCount } = await supa.from('message_log').select('_count').eq('user_id', uid).eq('guild_id', gid).eq('date', now).single();
 
-    const _count = msgCount?.count ?? 0;
+    const _count = msgCount?._count ?? 0;
 
     if (!targetData) return inter.reply(`❌ No data found for <@${target.id}>`);
 
@@ -434,7 +434,7 @@ bot.on('messageCreate', async msg => {
 
     const { data: existing } = await supa
         .from('message_log')
-        .select('count')
+        .select('_count')
         .eq('user_id', uid)
         .eq('guild_id', gid)
         .eq('date', now)
@@ -442,13 +442,13 @@ bot.on('messageCreate', async msg => {
 
     if (existing) {
         await supa.from('message_log')
-            .update({ count: existing.count + 1 })
+            .update({ _count: existing._count + 1 })
             .eq('user_id', uid)
             .eq('guild_id', gid)
             .eq('date', now);
     } else {
         await supa.from('message_log')
-            .insert({ user_id: uid, guild_id: gid, date: now, count: 1 });
+            .insert({ user_id: uid, guild_id: gid, date: now, _count: 1 });
     }
 });
 
@@ -572,13 +572,13 @@ cron.schedule('0 5 * * *', async () => {
             const {
                 data: msgLog
             } = await supa.from('message_log')
-                .select('count')
+                .select('_count')
                 .eq('guild_id', guild_id)
                 .eq('user_id', user.user_id)
                 .eq('date', yesterday)
                 .single();
 
-            const messagesYesterday = msgLog?.count ?? 0;
+            const messagesYesterday = msgLog?._count ?? 0;
             let newStreak;
 
             if (user.last_active === todayStr) {
