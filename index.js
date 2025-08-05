@@ -580,13 +580,15 @@ cron.schedule('0 5 * * *', async () => {
 
             const messagesYesterday = msgLog?._count ?? 0;
             let newStreak;
-
-            if (user.last_active === todayStr) {
-                newStreak = user.streak; // Already active today
-            } else if (messagesYesterday >= required_message) {
+		
+            // if (user.last_active === todayStr) {
+            //     newStreak = user.streak; // Already active today
+            // } else
+	    //Code Update : fucku  eto lang pala kaw, mag uupdate ka na bukas    
+	    if (messagesYesterday >= required_message) { //must meet the required message per day
                 newStreak = user.streak + 1;
             } else {
-                newStreak = 1;
+                newStreak = 1; //else will retrieve back to 1
             }
 
             await supa.from('users')
