@@ -706,4 +706,71 @@ cron.schedule('* * * * *', async () => {
 });
 
 
+// Top 10 GA Role Refresh - every 5 minutes
+cron.schedule('*/5 * * * *', async () => {
+  console.log('🏆 Refreshing Top 10 GA roles...');
+
+  const { data: guildSettings, error } = await supa
+    .from('settings')
+    .select('guild_id, Top10GARoleID');
+
+  if (error || !guildSettings) {
+    console.error('❌ Failed to fetch settings:', error);
+    return;
+  }
+
+  for (const { guild_id, Top10GARoleID } of guildSettings) {
+    if (!Top10GARoleID) continue;
+
+    const guild = bot.guilds.cache.get(guild_id);
+    if (!guild) continue;
+
+    let role;
+    try {
+      role = await guild.roles.fetch(Top10GARoleID);
+    } catch {
+      console.warn(`⚠️ Role ${Top10GARoleID} not found in guild ${guild_id}`);
+      continue;
+    }
+    if (!role) continue;
+
+    // Fetch all members with the role and remove it
+    for (const [, member] of role.members) {
+      try {
+        await member.roles.remove(role);
+        await new Promise(res => setTimeout(res, 500)); // 0.5s delay
+      } catch (err) {
+        console.error(`❌ Failed to remove role from ${member.user.username}:`, err.message);
+      }
+    }
+
+    // Fetch top 10 XP users for this guild
+    const { data: topUsers, error: topErr } = await supa
+      .from('users')
+      .select('user_id')
+      .eq('guild_id', guild_id)
+      .order('xp', { ascending: false })
+      .limit(10);
+
+    if (topErr || !topUsers) continue;
+
+    // Assign role to top 10
+    for (const { user_id } of topUsers) {
+      try {
+        const member = await guild.members.fetch(user_id).catch(() => null);
+        if (member && !member.roles.cache.has(role.id)) {
+          await member.roles.add(role);
+          await new Promise(res => setTimeout(res, 500)); // 0.5s delay
+        }
+      } catch (err) {
+        console.error(`❌ Failed to add role to ${user_id}:`, err.message);
+      }
+    }
+  }
+
+  console.log('🏆 Top 10 GA roles refreshed.');
+});
+
+
+
 bot.login(process.env.DISCORD_TOKEN);
