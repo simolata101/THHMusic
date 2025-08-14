@@ -742,14 +742,6 @@ cron.schedule('*/5 * * * *', async () => {
       continue;
     }
 
-    // Count total users in DB for this guild
-    const { count: totalUsersCount } = await supa
-      .from('users')
-      .select('*', { count: 'exact', head: true })
-      .eq('guild_id', guild_id);
-
-    console.log(`📊 Guild ${guild_id} — Users in DB with guild_id: ${totalUsersCount || 0}`);
-
     // Remove role from all current holders
     for (const [, member] of role.members) {
       try {
@@ -761,25 +753,24 @@ cron.schedule('*/5 * * * *', async () => {
       }
     }
 
-    // Fetch top 10 XP users for this guild
+    // Fetch top 10 XP users across all guilds (no guild_id filtering)
     const { data: topUsers, error: topErr } = await supa
       .from('users')
       .select('user_id')
-      .eq('guild_id', guild_id)
       .order('xp', { ascending: false })
       .limit(10);
 
     if (topErr) {
-      console.error(`❌ Error fetching top users for guild ${guild_id}:`, topErr.message);
+      console.error(`❌ Error fetching top users:`, topErr.message);
       continue;
     }
 
     if (!topUsers || topUsers.length === 0) {
-      console.warn(`⚠️ No top users found for guild ${guild_id}.`);
+      console.warn(`⚠️ No top users found.`);
       continue;
     }
 
-    console.log(`🏅 Top 10 users for guild ${guild_id}:`, topUsers.map(u => u.user_id));
+    console.log(`🏅 Top 10 users:`, topUsers.map(u => u.user_id));
 
     // Assign role to top 10
     for (const { user_id } of topUsers) {
@@ -798,8 +789,6 @@ cron.schedule('*/5 * * * *', async () => {
 
   console.log('✅ Top 10 GA roles refreshed.');
 });
-
-
 
 
 bot.login(process.env.DISCORD_TOKEN);
