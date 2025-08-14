@@ -706,7 +706,6 @@ cron.schedule('* * * * *', async () => {
 });
 
 
-// Top 10 GA Role Refresh - every 5 minutes
 cron.schedule('*/5 * * * *', async () => {
   console.log('🏆 Refreshing Top 10 GA roles...');
 
@@ -720,10 +719,16 @@ cron.schedule('*/5 * * * *', async () => {
   }
 
   for (const { guild_id, Top10GARoleID } of guildSettings) {
-    if (!Top10GARoleID) continue;
+    if (!Top10GARoleID) {
+      console.warn(`⚠️ No Top10GARoleID set for guild ${guild_id}`);
+      continue;
+    }
 
     const guild = bot.guilds.cache.get(guild_id);
-    if (!guild) continue;
+    if (!guild) {
+      console.warn(`⚠️ Bot not in guild ${guild_id}`);
+      continue;
+    }
 
     let role;
     try {
@@ -732,13 +737,25 @@ cron.schedule('*/5 * * * *', async () => {
       console.warn(`⚠️ Role ${Top10GARoleID} not found in guild ${guild_id}`);
       continue;
     }
-    if (!role) continue;
+    if (!role) {
+      console.warn(`⚠️ Role ${Top10GARoleID} is null in guild ${guild_id}`);
+      continue;
+    }
 
-    // Fetch all members with the role and remove it
+    // Count total users in DB for this guild
+    const { count: totalUsersCount } = await supa
+      .from('users')
+      .select('*', { count: 'exact', head: true })
+      .eq('guild_id', guild_id);
+
+    console.log(`📊 Guild ${guild_id} — Users in DB with guild_id: ${totalUsersCount || 0}`);
+
+    // Remove role from all current holders
     for (const [, member] of role.members) {
       try {
         await member.roles.remove(role);
-        await new Promise(res => setTimeout(res, 500)); // 0.5s delay
+        console.log(`⬅️ Removed role from ${member.user.tag}`);
+        await new Promise(res => setTimeout(res, 500));
       } catch (err) {
         console.error(`❌ Failed to remove role from ${member.user.username}:`, err.message);
       }
@@ -752,7 +769,17 @@ cron.schedule('*/5 * * * *', async () => {
       .order('xp', { ascending: false })
       .limit(10);
 
-    if (topErr || !topUsers) continue;
+    if (topErr) {
+      console.error(`❌ Error fetching top users for guild ${guild_id}:`, topErr.message);
+      continue;
+    }
+
+    if (!topUsers || topUsers.length === 0) {
+      console.warn(`⚠️ No top users found for guild ${guild_id}.`);
+      continue;
+    }
+
+    console.log(`🏅 Top 10 users for guild ${guild_id}:`, topUsers.map(u => u.user_id));
 
     // Assign role to top 10
     for (const { user_id } of topUsers) {
@@ -760,7 +787,8 @@ cron.schedule('*/5 * * * *', async () => {
         const member = await guild.members.fetch(user_id).catch(() => null);
         if (member && !member.roles.cache.has(role.id)) {
           await member.roles.add(role);
-          await new Promise(res => setTimeout(res, 500)); // 0.5s delay
+          console.log(`➡️ Added role to ${member.user.tag}`);
+          await new Promise(res => setTimeout(res, 500));
         }
       } catch (err) {
         console.error(`❌ Failed to add role to ${user_id}:`, err.message);
@@ -768,8 +796,9 @@ cron.schedule('*/5 * * * *', async () => {
     }
   }
 
-  console.log('🏆 Top 10 GA roles refreshed.');
+  console.log('✅ Top 10 GA roles refreshed.');
 });
+
 
 
 
