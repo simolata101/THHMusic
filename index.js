@@ -605,65 +605,105 @@ cron.schedule('0 5 * * *', async () => {
 cron.schedule('* * * * *', async () => {
   const now = new Date().toISOString().split('T')[0];
 
-  for (const [uid, session] of activeVoiceUsers.entries()) {
-    const { guild_id, channel_id } = session;
+  // Group active VC users by guild
+  const guildGroups = {};
+  for (const [uid, { guild_id }] of activeVoiceUsers.entries()) {
+    if (!guildGroups[guild_id]) guildGroups[guild_id] = [];
+    guildGroups[guild_id].push(uid);
+  }
 
+  for (const [guild_id, userIds] of Object.entries(guildGroups)) {
     const guild = bot.guilds.cache.get(guild_id);
     if (!guild) continue;
 
-    const { data: setting } = await supa.from('settings').select().eq('guild_id', guild_id).single();
-    const baseXp = setting?.vc_points ?? parseInt(process.env.DEFAULT_VC_POINTS) ?? 2;
+    // Fetch guild settings once
+    const { data: setting } = await supa
+      .from('settings')
+      .select()
+      .eq('guild_id', guild_id)
+      .single();
+    if (!setting) continue;
+
+    const baseXp = setting?.vc_points ?? Number(process.env.DEFAULT_VC_POINTS) ?? 2;
     const boostMultiplier = setting?.booster_multiplier ?? 1;
     const boostRoleId = setting?.vc_role_id;
 
-    const member = await guild.members.fetch(uid).catch(() => null);
-    if (!member) continue;
+    // Fetch all members in one call
+    const members = await guild.members.fetch({ user: userIds });
 
-    const hasBoostRole = boostRoleId && member.roles.cache.has(boostRoleId);
-    const xpGain = hasBoostRole ? baseXp * boostMultiplier : baseXp;
+    // Prepare updates in bulk
+    const updates = [];
 
-    let { data: user } = await supa.from('users').select().eq('user_id', uid).single();
-    if (!user) {
-      const res = await supa.from('users').insert({
-        user_id: uid,
-        xp: 0,
-        lvl: 1,
-        coins: 0,
-        streak: 1,
-        last_active: now
-      }).select().single();
-      user = res.data;
-    }
+    // Fetch existing users in one query
+    const { data: existingUsers } = await supa
+      .from('users')
+      .select()
+      .eq('guild_id', guild_id)
+      .in('user_id', userIds);
 
-    const newXp = user.xp + xpGain;
-    const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
-    const leveledUp = newLvl > user.lvl;
+    const existingMap = new Map(existingUsers?.map(u => [u.user_id, u]) || []);
 
-    await supa.from('users').update({
-      xp: newXp,
-      lvl: newLvl,
-      last_active: now
-    }).eq('user_id', uid);
+    for (const uid of userIds) {
+      const member = members.get(uid);
+      if (!member) continue;
 
-    if (leveledUp) {
-      const { data: roles } = await supa.from('level_roles').select().eq('guild_id', guild_id);
-      const announceChannelId = setting?.levelup_channel;
-      const announceChannel = announceChannelId ? guild.channels.cache.get(announceChannelId) : null;
+      const hasBoostRole = boostRoleId && member.roles.cache.has(boostRoleId);
+      const xpGain = hasBoostRole ? baseXp * boostMultiplier : baseXp;
 
-      if (announceChannel?.isTextBased()) {
-        announceChannel.send(`🔊 <@${uid}> leveled up to **${newLvl}** from voice chat!`);
+      let user = existingMap.get(uid);
+      if (!user) {
+        user = {
+          guild_id,
+          user_id: uid,
+          xp: 0,
+          lvl: 1,
+          coins: 0,
+          streak: 1,
+          last_active: now
+        };
       }
 
-      const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
-      for (const r of matchedRoles) {
-        const role = guild.roles.cache.get(r.role_id);
-        if (role && !member.roles.cache.has(role.id)) {
-          await member.roles.add(role).catch(() => {});
-          announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
+      const newXp = user.xp + xpGain;
+      const newLvl = Math.floor(Math.sqrt(newXp / 10)) + 1;
+      const leveledUp = newLvl > user.lvl;
+
+      updates.push({
+        guild_id,
+        user_id: uid,
+        xp: newXp,
+        lvl: newLvl,
+        last_active: now
+      });
+
+      if (leveledUp) {
+        const { data: roles } = await supa
+          .from('level_roles')
+          .select()
+          .eq('guild_id', guild_id);
+        const announceChannelId = setting?.levelup_channel;
+        const announceChannel = announceChannelId ? guild.channels.cache.get(announceChannelId) : null;
+
+        if (announceChannel?.isTextBased()) {
+          announceChannel.send(`🔊 <@${uid}> leveled up to **${newLvl}** from voice chat!`);
+        }
+
+        const matchedRoles = roles?.filter(r => newLvl >= r.min_level && newLvl <= r.max_level) || [];
+        for (const r of matchedRoles) {
+          const role = guild.roles.cache.get(r.role_id);
+          if (role && !member.roles.cache.has(role.id)) {
+            await member.roles.add(role).catch(() => {});
+            announceChannel?.send(`🛡️ <@${uid}> received role **${role.name}**!`);
+          }
         }
       }
     }
+
+    // Bulk upsert all XP changes for this guild
+    if (updates.length > 0) {
+      await supa.from('users').upsert(updates, { onConflict: 'guild_id,user_id' });
+    }
   }
 });
+
 
 bot.login(process.env.DISCORD_TOKEN);
