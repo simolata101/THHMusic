@@ -182,6 +182,7 @@ bot.on('interactionCreate', async inter => {
 	if (inter.commandName === 'givexp') {
 	  // Restrict to specific user
 	  if (inter.user.id !== '776510853469175829') {
+		return inter.reply(`❌ USER ID <@${inter.user.id}>::`)
 	    return inter.reply('❌ This command can only be used by **Haven Bot** for currency exchange.');
 	  }
 	
