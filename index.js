@@ -65,6 +65,11 @@ bot.on('ready', async () => {
             .setDescription('Messages per day to maintain streak')
             .setRequired(true))
         .setDescription('Set required messages per day for streaks (Admin)'),
+	new SlashCommandBuilder()
+		  .setName('givexp')
+		  .setDescription('Give your XP points to another member')
+		  .addUserOption(opt => opt.setName('user').setDescription('Member to give XP').setRequired(true))
+		  .addIntegerOption(opt => opt.setName('amount').setDescription('Amount of XP to give').setRequired(true)),
 	new SlashCommandBuilder().setName('setminimumpervc')
 	  .setDescription('Set the minimum VC members and role to assign (Admin)')
 	  .addIntegerOption(opt =>
@@ -173,6 +178,75 @@ bot.on('interactionCreate', async inter => {
 
         return inter.reply(`📈 Required daily messages for streak set to **${amount}**.`);
     }
+
+	if (inter.commandName === 'givexp') {
+		  const target = inter.options.getUser('user');
+		  const amount = inter.options.getInteger('amount');
+		  if (target.id === inter.user.id) return inter.reply('❌ You cannot give XP to yourself.');
+		  if (amount <= 0) return inter.reply('❌ Amount must be greater than 0.');
+		
+		  // Fetch sender and receiver
+		  const { data: sender } = await supa.from('users').select().eq('user_id', inter.user.id).single();
+		  let { data: receiver } = await supa.from('users').select().eq('user_id', target.id).single();
+		
+		  if (!sender || sender.xp < amount) return inter.reply('❌ You do not have enough XP.');
+		
+		  // Store XP before transaction
+		  const senderOldXp = sender.xp;
+		  const receiverOldXp = receiver?.xp ?? 0;
+		
+		  // Create receiver if doesn't exist
+		  if (!receiver) {
+		    const res = await supa.from('users').insert({
+		      user_id: target.id,
+		      coins: 0,
+		      xp: 0,
+		      lvl: 1,
+		      streak: 1,
+		      last_active: new Date().toISOString().split('T')[0]
+		    }).select().single();
+		    receiver = res.data;
+		  }
+		
+		  // Update sender XP
+		  await supa.from('users').update({
+		    xp: senderOldXp - amount
+		  }).eq('user_id', inter.user.id);
+		
+		  // Update receiver XP and level
+		  const receiverNewXp = receiverOldXp + amount;
+		  const receiverNewLvl = Math.floor(Math.sqrt(receiverNewXp / 10)) + 1;
+		  await supa.from('users').update({
+		    xp: receiverNewXp,
+		    lvl: receiverNewLvl
+		  }).eq('user_id', target.id);
+		
+		  // Fetch new sender XP
+		  const { data: senderAfter } = await supa.from('users').select().eq('user_id', inter.user.id).single();
+		
+		  // Generate random reference number
+		  const refNum = Math.floor(100000 + Math.random() * 900000); // 6 digit
+		
+		  // Build receipt text
+		  const receipt = 
+		`📄 *XP Transfer Receipt*
+		Reference #: \`${refNum}\`
+		
+		*Sender:* <@${inter.user.id}>
+		- XP before: \`${senderOldXp}\`
+		- XP after: \`${senderAfter.xp}\`
+		
+		*Receiver:* <@${target.id}>
+		- XP before: \`${receiverOldXp}\`
+		- XP after: \`${receiverNewXp}\`
+		
+		*Amount transferred:* \`${amount}\` XP
+		
+		Timestamp: ${new Date().toLocaleString()}
+		`;
+		
+		  return inter.reply(receipt);
+	}
 
     if (inter.commandName === 'help') {
         const {
