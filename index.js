@@ -3,7 +3,8 @@ import {
     GatewayIntentBits,
     SlashCommandBuilder,
     PermissionsBitField,
-    AttachmentBuilder 
+    AttachmentBuilder,
+	EmbedBuilder
 } from 'discord.js';
 import {
     createClient
@@ -262,7 +263,6 @@ bot.on('interactionCreate', async inter => {
 	  const refNum = Math.floor(100000 + Math.random() * 900000); // 6 digit
 	
 	  // Create embed receipt
-	  const { EmbedBuilder } = require("discord.js");
 	  const receiptEmbed = new EmbedBuilder()
 	    .setColor("#2ecc71") // green success color
 	    .setTitle("📄 XP Transfer Receipt")
