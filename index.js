@@ -180,14 +180,14 @@ bot.on('interactionCreate', async inter => {
     }
 
 	if (inter.commandName === 'givexp') {
-	  // Restrict to specific user
-	  if (inter.user.id !== '776510853469175829') {
-		return inter.reply(`❌ USER ID <@${inter.user.id}>::`)
-	    return inter.reply('❌ This command can only be used by **Haven Bot** for currency exchange.');
-	  }
-	
+	  
 	  const target = inter.options.getUser('user');
 	  const amount = inter.options.getInteger('amount');
+		// Restrict to specific user
+	
+	 if (target.id !== '776510853469175829') {
+	    return inter.reply('❌ This command can only be used by **Haven Bot** for currency exchange.');
+	  }
 	
 	  if (target.id === inter.user.id) 
 	    return inter.reply('❌ You cannot give XP to yourself.');
