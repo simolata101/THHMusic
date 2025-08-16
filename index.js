@@ -180,73 +180,104 @@ bot.on('interactionCreate', async inter => {
     }
 
 	if (inter.commandName === 'givexp') {
-		  const target = inter.options.getUser('user');
-		  const amount = inter.options.getInteger('amount');
-		  if (target.id === inter.user.id) return inter.reply('❌ You cannot give XP to yourself.');
-		  if (amount <= 0) return inter.reply('❌ Amount must be greater than 0.');
-		
-		  // Fetch sender and receiver
-		  const { data: sender } = await supa.from('users').select().eq('user_id', inter.user.id).single();
-		  let { data: receiver } = await supa.from('users').select().eq('user_id', target.id).single();
-		
-		  if (!sender || sender.xp < amount) return inter.reply('❌ You do not have enough XP.');
-		
-		  // Store XP before transaction
-		  const senderOldXp = sender.xp;
-		  const receiverOldXp = receiver?.xp ?? 0;
-		
-		  // Create receiver if doesn't exist
-		  if (!receiver) {
-		    const res = await supa.from('users').insert({
-		      user_id: target.id,
-		      coins: 0,
-		      xp: 0,
-		      lvl: 1,
-		      streak: 1,
-		      last_active: new Date().toISOString().split('T')[0]
-		    }).select().single();
-		    receiver = res.data;
-		  }
-		
-		  // Update sender XP
-		  await supa.from('users').update({
-		    xp: senderOldXp - amount
-		  }).eq('user_id', inter.user.id);
-		
-		  // Update receiver XP and level
-		  const receiverNewXp = receiverOldXp + amount;
-		  const receiverNewLvl = Math.floor(Math.sqrt(receiverNewXp / 10)) + 1;
-		  await supa.from('users').update({
-		    xp: receiverNewXp,
-		    lvl: receiverNewLvl
-		  }).eq('user_id', target.id);
-		
-		  // Fetch new sender XP
-		  const { data: senderAfter } = await supa.from('users').select().eq('user_id', inter.user.id).single();
-		
-		  // Generate random reference number
-		  const refNum = Math.floor(100000 + Math.random() * 900000); // 6 digit
-		
-		  // Build receipt text
-		  const receipt = 
-		`📄 *XP Transfer Receipt*
-		Reference #: \`${refNum}\`
-		
-		*Sender:* <@${inter.user.id}>
-		- XP before: \`${senderOldXp}\`
-		- XP after: \`${senderAfter.xp}\`
-		
-		*Receiver:* <@${target.id}>
-		- XP before: \`${receiverOldXp}\`
-		- XP after: \`${receiverNewXp}\`
-		
-		*Amount transferred:* \`${amount}\` XP
-		
-		Timestamp: ${new Date().toLocaleString()}
-		`;
-		
-		  return inter.reply(receipt);
+	  // Restrict to specific user
+	  if (inter.user.id !== '776510853469175829') {
+	    return inter.reply('❌ This command can only be used by **Haven Bot** for currency exchange.');
+	  }
+	
+	  const target = inter.options.getUser('user');
+	  const amount = inter.options.getInteger('amount');
+	
+	  if (target.id === inter.user.id) 
+	    return inter.reply('❌ You cannot give XP to yourself.');
+	  if (amount <= 0) 
+	    return inter.reply('❌ Amount must be greater than 0.');
+	
+	  // Fetch sender and receiver
+	  const { data: sender } = await supa
+	    .from('users')
+	    .select()
+	    .eq('user_id', inter.user.id)
+	    .single();
+	
+	  let { data: receiver } = await supa
+	    .from('users')
+	    .select()
+	    .eq('user_id', target.id)
+	    .single();
+	
+	  if (!sender || sender.xp < amount) 
+	    return inter.reply('❌ You do not have enough XP.');
+	
+	  // Store XP before transaction
+	  const senderOldXp = sender.xp;
+	  const receiverOldXp = receiver?.xp ?? 0;
+	
+	  // Create receiver if doesn't exist
+	  if (!receiver) {
+	    const res = await supa
+	      .from('users')
+	      .insert({
+	        user_id: target.id,
+	        coins: 0,
+	        xp: 0,
+	        lvl: 1,
+	        streak: 1,
+	        last_active: new Date().toISOString().split('T')[0]
+	      })
+	      .select()
+	      .single();
+	    receiver = res.data;
+	  }
+	
+	  // Update sender XP
+	  await supa
+	    .from('users')
+	    .update({
+	      xp: senderOldXp - amount
+	    })
+	    .eq('user_id', inter.user.id);
+	
+	  // Update receiver XP and level
+	  const receiverNewXp = receiverOldXp + amount;
+	  const receiverNewLvl = Math.floor(Math.sqrt(receiverNewXp / 10)) + 1;
+	
+	  await supa
+	    .from('users')
+	    .update({
+	      xp: receiverNewXp,
+	      lvl: receiverNewLvl
+	    })
+	    .eq('user_id', target.id);
+	
+	  // Fetch new sender XP
+	  const { data: senderAfter } = await supa
+	    .from('users')
+	    .select()
+	    .eq('user_id', inter.user.id)
+	    .single();
+	
+	  // Generate random reference number
+	  const refNum = Math.floor(100000 + Math.random() * 900000); // 6 digit
+	
+	  // Create embed receipt
+	  const { EmbedBuilder } = require("discord.js");
+	  const receiptEmbed = new EmbedBuilder()
+	    .setColor("#2ecc71") // green success color
+	    .setTitle("📄 XP Transfer Receipt")
+	    .setDescription("✅ Transaction completed successfully.")
+	    .addFields(
+	      { name: "🧾 Reference #", value: `\`${refNum}\``, inline: false },
+	      { name: "👤 Sender", value: `<@${inter.user.id}>\n• XP Before: \`${senderOldXp}\`\n• XP After: \`${senderAfter.xp}\``, inline: true },
+	      { name: "👤 Receiver", value: `<@${target.id}>\n• XP Before: \`${receiverOldXp}\`\n• XP After: \`${receiverNewXp}\``, inline: true },
+	      { name: "💰 Amount Transferred", value: `\`${amount} XP\``, inline: false }
+	    )
+	    .setFooter({ text: `Timestamp: ${new Date().toLocaleString()}` })
+	    .setTimestamp();
+	
+	  return inter.reply({ embeds: [receiptEmbed] });
 	}
+
 
     if (inter.commandName === 'help') {
         const {
